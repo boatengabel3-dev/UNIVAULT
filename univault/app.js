@@ -1,11 +1,48 @@
 let Q = [], user = null, P = {}, hist = [], cur = null, quiz = [], myUploads = [], myPayouts = [], dashStatus = "all";
 
+function setMenuOpen(open) {
+  const menu = $("#navMenu"), btn = $("#menuBtn");
+  if (!menu || !btn) return;
+  menu.hidden = !open;
+  btn.setAttribute("aria-expanded", String(open));
+}
+
 function show(v) {
   document.querySelectorAll("main>section").forEach((s) => (s.hidden = s.id !== v));
-  document.querySelectorAll("nav button").forEach((b) => b.classList.toggle("on", b.dataset.v === v));
+  document.querySelectorAll("nav button").forEach((b) => {
+    const active = b.dataset.v === v;
+    b.classList.toggle("on", active);
+    if (active && $("#activeViewLabel")) $("#activeViewLabel").textContent = b.textContent;
+  });
+  setMenuOpen(false);
 }
 
 document.querySelectorAll("nav button").forEach((b) => (b.onclick = () => show(b.dataset.v)));
+
+if ($("#menuBtn")) {
+  $("#menuBtn").onclick = (e) => {
+    e.stopPropagation();
+    const menu = $("#navMenu");
+    setMenuOpen(menu ? menu.hidden : false);
+  };
+}
+
+if ($("#brandHome")) {
+  $("#brandHome").onclick = (e) => {
+    e.preventDefault();
+    show("browse");
+  };
+}
+
+document.addEventListener("click", (e) => {
+  const menu = $("#navMenu"), btn = $("#menuBtn");
+  if (!menu || menu.hidden) return;
+  if (!menu.contains(e.target) && !btn?.contains(e.target)) setMenuOpen(false);
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") setMenuOpen(false);
+});
 
 (async () => {
   const {
