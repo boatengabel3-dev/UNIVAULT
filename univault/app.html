@@ -1,11 +1,53 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>UniVault</title><link rel="icon" type="image/png" href="assets/knust-crest.png"><link rel="stylesheet" href="styles.css"></head><body>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>UniVault — Past Examination Archive</title><link rel="icon" type="image/png" href="assets/knust-crest.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="styles.css"></head><body class="app-page">
+<div class="app-bg" aria-hidden="true"></div>
 <div class="aura"><i></i><i></i><i></i></div>
-<header><b class="logo"><img class="site-logo" src="assets/knust-wordmark.png" alt="KNUST"><span class="logo-sep" aria-hidden="true"></span><span>Uni<em>Vault</em></span></b><nav><button data-v="browse" class="on">Questions</button><button data-v="chat">AI Tutor</button><button data-v="quiz">Quiz</button><button data-v="upload">Upload &amp; Earn</button><button data-v="wallet">Wallet</button><button data-v="pricing">Premium</button></nav><span><small id="badge"></small> <a id="adminLink" href="admin.html" class="cta g" style="padding:8px 12px;border-radius:10px;font-size:.9rem;text-decoration:none" hidden>Admin</a> <button id="out" class="ghost">Sign out</button></span></header>
+<header><b class="logo"><img class="site-logo" src="assets/knust-wordmark.png" alt="KNUST"><span class="logo-sep" aria-hidden="true"></span><span>Uni<em>Vault</em></span></b><nav><button data-v="browse" class="on">Questions</button><button data-v="dashboard">Dashboard</button><button data-v="chat">AI Tutor</button><button data-v="quiz">Quiz</button><button data-v="upload">Upload &amp; Earn</button><button data-v="wallet">Wallet</button><button data-v="pricing">Premium</button></nav><span class="hdr-actions"><small id="badge" class="acct-status"></small><a id="adminLink" href="admin.html" class="admin-btn" hidden>Admin</a><button id="out" class="ghost">Sign out</button></span></header>
 <main>
-<section id="browse"><h1>Past questions, organised.</h1><div class="bar"><select id="dep" aria-label="Filter by department"></select><input id="search" type="search" placeholder="Search course code or title" aria-label="Search past papers by course code or title"><button id="clearSearch" type="button" class="ghost" hidden>Clear</button></div><p id="browseMeta" style="color:var(--mut);font-size:.88rem;margin:4px 0 14px"></p><div id="list" class="grid"></div></section>
+<section id="browse">
+<div class="home-hero">
+<div>
+<p class="home-kicker">KNUST Examination Repository</p>
+<h1>Past Examination Archive</h1>
+<p class="home-sub">Browse verified past examination papers sorted by department, course code, and academic year, or launch the AI Tutor for step-by-step derivations.</p>
+<div class="home-actions">
+<button type="button" onclick="show('chat')">Launch AI Tutor</button>
+<button type="button" class="ghost" onclick="show('upload')">Upload &amp; Earn GH₵3</button>
+</div>
+</div>
+<div class="home-metrics" aria-label="Archive summary">
+<div class="home-metric"><small>Verified Papers</small><strong id="homeStatPapers">—</strong></div>
+<div class="home-metric"><small>Courses Indexed</small><strong id="homeStatCourses">—</strong></div>
+<div class="home-metric"><small>Departments</small><strong id="homeStatDepts">—</strong></div>
+</div>
+</div>
+<div class="filter-panel">
+<div class="bar"><select id="dep" aria-label="Filter by department"></select><input id="search" type="search" placeholder="Search course code, title, or year (e.g. MATH 151)" aria-label="Search past papers by course code or title"><button id="clearSearch" type="button" class="ghost" hidden>Clear</button></div>
+<p id="browseMeta" class="browse-meta"></p>
+</div>
+<div id="list" class="grid"></div>
+</section>
+<section id="dashboard" hidden>
+<h1>Contributor Dashboard</h1>
+<div class="stats">
+<div class="stat"><small>Total Accumulated Earnings</small><strong id="dashTotalEarned">GH₵0.00</strong></div>
+<div class="stat"><small>Available Wallet Balance</small><strong id="dashBalance">GH₵0.00</strong></div>
+<div class="stat"><small>Approved Papers</small><strong id="dashApproved">0</strong></div>
+<div class="stat"><small>Pending Review</small><strong id="dashPending">0</strong></div>
+</div>
+<div class="dash-head">
+<h2>Your Uploaded Papers</h2>
+<div class="seg" id="dashFilter" role="tablist" aria-label="Filter uploaded papers by status">
+<button type="button" data-st="all" class="on">All</button>
+<button type="button" data-st="pending">Pending</button>
+<button type="button" data-st="approved">Approved</button>
+<button type="button" data-st="rejected">Rejected</button>
+</div>
+</div>
+<div id="dashList" class="row-list"></div>
+</section>
 <section id="chat" hidden><h1>AI Tutor</h1><div class="bar"><select class="courses" id="chatCourse"></select><button id="predict" class="ghost">Predict lecturer's style</button></div><div id="log" class="glass"></div><div class="bar"><input id="msg" placeholder="Paste or ask a past question..."><button id="send">Send</button></div></section>
 <section id="quiz" hidden><h1>Quiz Lab</h1><div class="glass form"><select class="courses" id="quizCourse"></select><input id="count" type="number" min="3" max="15" value="5"><textarea id="instr" placeholder="What should the AI set? e.g. Only calculation questions, hard level"></textarea><button id="gen">Generate quiz</button></div><div id="quizOut"></div></section>
-<section id="upload" hidden><h1>Upload &amp; earn GH₵3</h1><div class="glass form"><p>Each question is reviewed. You earn GH₵3 when it is approved. Only upload genuine past questions, no duplicates.</p><input id="ud" placeholder="Department"><input id="uc" placeholder="Course code, e.g. MATH 151"><input id="ut" placeholder="Course title"><input id="uy" type="number" placeholder="Year, e.g. 2023"><select id="us"><option value="1">Semester 1</option><option value="2">Semester 2</option></select><textarea id="ub" placeholder="Type or paste the full question paper text"></textarea><button id="usub">Submit for review</button><div id="mine"></div></div></section>
+<section id="upload" hidden><h1>Upload &amp; earn GH₵3</h1><div class="glass form"><p>Each question is reviewed. You earn GH₵3 when it is approved. Only upload genuine past questions, no duplicates.</p><input id="ud" placeholder="Department"><input id="uc" placeholder="Course code, e.g. MATH 151"><input id="ut" placeholder="Course title"><input id="udescr" placeholder="Description or exam notes (optional)"><input id="uy" type="number" placeholder="Year, e.g. 2023"><select id="us"><option value="1">Semester 1</option><option value="2">Semester 2</option></select><textarea id="ub" placeholder="Type or paste the full question paper text"></textarea><button id="usub">Submit for review</button><div id="mine"></div></div></section>
 <section id="wallet" hidden><h1>Wallet</h1><div class="glass form"><h2 id="bal"></h2><input id="wn" placeholder="Mobile Money account name"><input id="wm" placeholder="Mobile Money number"><select id="wk"><option value="MTN">MTN</option><option value="VOD">Telecel</option><option value="ATL">AirtelTigo</option></select><button id="wd">Withdraw (min GH₵10)</button><div id="pays"></div></div></section>
 <section id="pricing" hidden><h1>Go Premium</h1><div class="glass price"><h2>GH₵ 30 <small>/ month</small></h2><p>Read every past question and use the AI tutor, predictions and quizzes.</p><button id="pay">Pay with Paystack</button></div></section>
 </main>

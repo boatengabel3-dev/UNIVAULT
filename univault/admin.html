@@ -1,4 +1,86 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>UniVault Admin</title><meta name="robots" content="noindex"><link rel="icon" type="image/png" href="assets/knust-crest.png"><link rel="stylesheet" href="styles.css"></head><body hidden>
-<div class="aura"><i></i><i></i><i></i></div><header><b class="logo"><img class="site-logo" src="assets/knust-wordmark.png" alt="KNUST"><span class="logo-sep" aria-hidden="true"></span><span>Uni<em>Vault</em> Admin</span></b><a href="app.html" class="ghost" style="padding:8px 14px;border-radius:10px;border:1px solid var(--b);color:var(--ink);text-decoration:none;font-size:.9rem">Back to App</a></header>
-<main><h1>Pending uploads</h1><div id="pend" class="grid"></div><h1 style="margin-top:40px">Payout requests</h1><div id="po" class="grid"></div></main>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>UniVault Admin Dashboard</title><meta name="robots" content="noindex"><link rel="icon" type="image/png" href="assets/knust-crest.png"><link rel="stylesheet" href="styles.css"></head><body hidden>
+<div class="aura"><i></i><i></i><i></i></div>
+<header>
+  <b class="logo"><img class="site-logo" src="assets/knust-wordmark.png" alt="KNUST"><span class="logo-sep" aria-hidden="true"></span><span>Uni<em>Vault</em> Admin</span></b>
+  <nav>
+    <button type="button" data-av="overview" class="on">Overview</button>
+    <button type="button" data-av="publish">Upload Question</button>
+    <button type="button" data-av="moderation">Moderation</button>
+    <button type="button" data-av="payouts">Payouts</button>
+  </nav>
+  <span style="display:inline-flex;gap:8px;align-items:center">
+    <a href="app.html" class="ghost" style="padding:8px 14px;border-radius:10px;border:1px solid var(--b);color:var(--ink);text-decoration:none;font-size:.9rem">Student View</a>
+    <button id="aout" type="button" class="ghost">Sign out</button>
+  </span>
+</header>
+<main>
+  <h1>Site Overview &amp; Operations</h1>
+  <div class="stats">
+    <div class="stat"><small>Approved Papers</small><strong id="ovApproved">0</strong></div>
+    <div class="stat"><small>Pending Review</small><strong id="ovPending">0</strong></div>
+    <div class="stat"><small>Pending Payouts</small><strong id="ovPayouts">0</strong></div>
+    <div class="stat"><small>Registered Users</small><strong id="ovUsers">—</strong></div>
+    <div class="stat"><small>Active Premium</small><strong id="ovPremium">—</strong></div>
+    <div class="stat"><small>Subscription Revenue</small><strong id="ovRevenue">—</strong></div>
+  </div>
+
+  <section id="av-overview">
+    <div class="two-col">
+      <div>
+        <div class="dash-head">
+          <h2>Recent Uploads Across Site</h2>
+          <div class="seg" id="ovFilter">
+            <button type="button" data-st="all" class="on">All</button>
+            <button type="button" data-st="approved">Approved</button>
+            <button type="button" data-st="pending">Pending</button>
+            <button type="button" data-st="rejected">Rejected</button>
+          </div>
+        </div>
+        <div id="allQuestions" class="row-list"></div>
+      </div>
+      <div>
+        <div class="dash-head">
+          <h2>Recent Payouts &amp; Subscriptions</h2>
+        </div>
+        <div id="activityFeed" class="row-list"></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="av-publish" hidden>
+    <div class="dash-head"><h2>Upload &amp; Publish Question</h2></div>
+    <form id="adminUploadForm" class="glass form">
+      <p style="color:var(--mut);font-size:.92rem">Questions published here are immediately marked approved and visible in the KNUST course archive.</p>
+      <div class="two-col">
+        <input id="ad" placeholder="Department (e.g. Computer Science)" required>
+        <input id="ac" placeholder="Course code (e.g. CSM 251)" required>
+      </div>
+      <div class="two-col">
+        <input id="at" placeholder="Course title (e.g. Data Structures)" required>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+          <input id="ay" type="number" min="1990" max="2035" placeholder="Year (e.g. 2025)" required>
+          <select id="as"><option value="1">Semester 1</option><option value="2">Semester 2</option></select>
+        </div>
+      </div>
+      <input id="adescr" placeholder="Description / topic summary (e.g. End-of-semester paper covering trees, graphs, and sorting)">
+      <textarea id="ab" placeholder="Type or paste the full examination question paper text..." required style="min-height:180px"></textarea>
+      <div class="bar">
+        <button id="apub" type="submit">Publish Question</button>
+        <span id="amsg" style="align-self:center;font-size:.9rem;color:var(--c)"></span>
+      </div>
+    </form>
+  </section>
+
+  <section id="av-moderation" hidden>
+    <div class="dash-head"><h2>Pending Student Uploads</h2></div>
+    <div id="pend" class="grid"></div>
+  </section>
+
+  <section id="av-payouts" hidden>
+    <div class="dash-head"><h2>Mobile Money Payout Requests</h2></div>
+    <div id="po" class="grid"></div>
+    <div class="dash-head"><h2>Payout History</h2></div>
+    <div id="poHistory" class="row-list"></div>
+  </section>
+</main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" crossorigin="anonymous"></script><script src="config.js"></script><script src="admin.js"></script></body></html>
