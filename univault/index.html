@@ -1,0 +1,105 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>UniVault — KNUST Past Questions &amp; Study Archive</title><link rel="icon" type="image/png" href="assets/knust-crest.png"><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="landing.css"></head><body><div class="aura"><i></i><i></i><i></i></div><div class="scene"><div class="cube"><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i></div><div class="cube"><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i></div><div class="cube"><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i></div><div class="cube"><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i></div></div>
+<header><b class="logo"><img class="nav-crest" src="assets/knust-crest.png" alt="KNUST crest"><span>Uni<em>Vault</em></span></b><a class="cta g" href="signup.html">Sign in</a></header>
+<main>
+<div class="hero"><img class="crest" alt="KNUST crest" src="assets/knust-crest.png"><h1>Welcome to UniVault</h1><p>Every KNUST past question, sorted by department, course and year. Practise with an AI tutor that studies how your lecturers set questions, and earn GH₵3 for each question you upload.</p><a href="signup.html">Get started</a><a class="cta g" href="#how">How it works</a></div>
+
+<section id="how" aria-label="How it works" class="grid feat">
+<div class="card" tabindex="0"><h3>Browse by course and year</h3><p id="stat-copy">Find any paper in seconds.</p></div>
+<div class="card" tabindex="0"><h3>AI tutor and quizzes</h3><p>Solve past questions, predict patterns, and generate your own quizzes.</p></div>
+<div class="card" tabindex="0"><h3>Earn as you share</h3><p>GH₵3 for every approved upload, paid to your Mobile Money.</p></div>
+<div class="card" tabindex="0"><h3>GH₵30 / month</h3><p>Full access to every question and the AI tools.</p></div>
+</section>
+
+<section id="catalog-search" class="search-sec" aria-labelledby="search-heading">
+<div class="sec-head">
+<p class="sec-kicker">Course Archive</p>
+<h2 id="search-heading">Search past papers</h2>
+<p>Filter approved KNUST examination papers dynamically by course code, course title, or department.</p>
+</div>
+<div class="bar search-bar">
+<select id="home-dep" aria-label="Filter by department"><option value="">All departments</option></select>
+<input id="home-search" type="search" placeholder="Search by course code or title (e.g. MATH 151, Calculus)" aria-label="Search past papers by course code or title">
+<button id="home-clear" type="button" class="ghost" hidden>Clear</button>
+</div>
+<p id="home-status" class="search-meta"></p>
+<div id="home-list" class="grid"></div>
+</section>
+
+<section id="testimonials" class="testimonials" aria-labelledby="testimonials-heading">
+<div class="sec-head">
+<p class="sec-kicker">Academic Community</p>
+<h2 id="testimonials-heading">Trusted by student contributors and scholars</h2>
+<p>Verified reviews from KNUST undergraduates, teaching assistants, and archive contributors across faculties.</p>
+</div>
+<div class="tgrid">
+<article class="card tcard" tabindex="0">
+<blockquote class="tquote">“I transcribed and submitted fourteen semester papers from our department drive before mid-sems. Review took less than a day, and every GH₵3 credit settled cleanly to my Mobile Money.”</blockquote>
+<footer class="tmeta">
+<cite class="tauthor">Kwame Mensah</cite>
+<span class="trole">Student Contributor · BSc. Computer Engineering</span>
+</footer>
+</article>
+<article class="card tcard" tabindex="0">
+<blockquote class="tquote">“Having five years of past papers indexed by course code and semester saved weeks of hunting through group chats. The step-by-step tutor helped me drill numerical derivations before finals.”</blockquote>
+<footer class="tmeta">
+<cite class="tauthor">Abena Boateng</cite>
+<span class="trole">Academic Subscriber · BSc. Biochemistry</span>
+</footer>
+</article>
+<article class="card tcard" tabindex="0">
+<blockquote class="tquote">“I point my first-year tutorial groups to UniVault so they can examine authentic question framing and mark allocation across past years instead of relying on unverified notes.”</blockquote>
+<footer class="tmeta">
+<cite class="tauthor">Kofi Asare</cite>
+<span class="trole">Teaching Assistant · Department of Mathematics</span>
+</footer>
+</article>
+</div>
+</section>
+
+<footer class="site-foot">
+<span>UniVault · Academic Past-Question Archive for KNUST</span>
+<span>Verified uploads · GH₵30 / month</span>
+</footer>
+</main>
+<script src="config.js"></script><script>
+(()=>{
+  const depEl=$("#home-dep"),qEl=$("#home-search"),clrEl=$("#home-clear"),stEl=$("#home-status"),listEl=$("#home-list");
+  let courses=[];
+  function renderHome(){
+    const d=depEl.value,t=qEl.value.trim().toLowerCase();
+    clrEl.hidden=!d&&!t;
+    const matches=courses.filter(c=>{
+      if(d&&c.department!==d)return false;
+      if(!t)return true;
+      const hay=`${c.course_code} ${c.course_title} ${c.department}`.toLowerCase();
+      return hay.includes(t);
+    });
+    if(!isValidSupabaseUrl){
+      stEl.textContent="Configure SUPABASE_URL and SUPABASE_ANON_KEY in Secrets to load live approved papers.";
+      listEl.innerHTML="";
+      return;
+    }
+    if(courses.length===0){
+      stEl.textContent="No approved past papers available yet.";
+      listEl.innerHTML="";
+      return;
+    }
+    stEl.textContent=`Showing ${matches.length} of ${courses.length} courses`;
+    listEl.innerHTML=matches.map(c=>`<article class="card"><small>${esc(c.department)}</small><h3>${esc(c.course_code)}<span>${esc(c.course_title||"Past Examination Papers")}</span></h3><div class="chips">${c.papers.map(p=>`<a class="chip-link" href="signup.html">${p.year}${p.semester?" S"+p.semester:""}</a>`).join("")}</div></article>`).join("")||'<p class="search-empty">No past papers match that course code or title.</p>';
+  }
+  depEl.onchange=qEl.oninput=renderHome;
+  clrEl.onclick=()=>{depEl.value="";qEl.value="";renderHome();qEl.focus()};
+  renderHome();
+  if(isValidSupabaseUrl){
+    fetch(C.SUPABASE_URL.replace(/\/$/,"")+"/functions/v1/public-stats",{headers:{apikey:C.SUPABASE_ANON_KEY,Authorization:"Bearer "+C.SUPABASE_ANON_KEY}})
+      .then(r=>r.ok?r.json():null)
+      .then(d=>{
+        if(!d)return;
+        if(d.totalQuestions>0){$("#stat-copy").textContent=`Find any paper in seconds — ${d.totalQuestions} verified papers across ${d.totalCourses} courses.`;}
+        courses=Array.isArray(d.courses)?d.courses:[];
+        depEl.innerHTML='<option value="">All departments</option>'+(d.departments||[]).map(dep=>`<option value="${esc(dep)}">${esc(dep)}</option>`).join("");
+        renderHome();
+      }).catch(()=>{});
+  }
+})();
+</script></body></html>

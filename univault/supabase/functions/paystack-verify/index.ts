@@ -1,0 +1,21 @@
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+const cors={"Access-Control-Allow-Origin":"*","Access-Control-Allow-Headers":"authorization, x-client-info, apikey, content-type"};
+const json=(b:unknown,s=200)=>new Response(JSON.stringify(b),{status:s,headers:{...cors,"Content-Type":"application/json"}});
+Deno.serve(async req=>{
+  if(req.method==="OPTIONS")return new Response("ok",{headers:cors});
+  const sb=createClient(Deno.env.get("SUPABASE_URL")!,Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+  const {data:{user}}=await sb.auth.getUser((req.headers.get("Authorization")||"").replace("Bearer ",""));
+  if(!user)return json({error:"Sign in"},401);
+  const {reference}=await req.json();
+  const {data:used}=await sb.from("payments").select("reference").eq("reference",reference).maybeSingle();
+  if(used)return json({error:"Reference already used"},400);
+  const r=await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,{headers:{Authorization:`Bearer ${Deno.env.get("PAYSTACK_SECRET_KEY")}`}});
+  const {data}=await r.json();
+  if(data?.status!=="success"||data.currency!=="GHS"||data.amount<3000||data.customer?.email!==user.email)return json({ok:false},400);
+  const {data:p}=await sb.from("profiles").select("premium_until").eq("id",user.id).single();
+  const base=p?.premium_until&&new Date(p.premium_until)>new Date()?new Date(p.premium_until):new Date();
+  base.setDate(base.getDate()+30);
+  await sb.from("payments").insert({reference,user_id:user.id,amount:data.amount});
+  await sb.from("profiles").update({premium_until:base.toISOString()}).eq("id",user.id);
+  return json({ok:true,premium_until:base});
+});
