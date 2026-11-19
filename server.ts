@@ -1,8 +1,13 @@
 import 'dotenv/config';
-import { GoogleGenAI, Type } from '@google/genai';
+import { Type } from '@google/genai';
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
+import {
+  checkDuplicateQuestion,
+  createGeminiClient,
+  processUploadedMaterial,
+} from './api/_lib/univault-ai.ts';
 
 const app = express();
 const port = Number(process.env.PORT) || 3000;
@@ -11,49 +16,145 @@ const univaultDir = path.resolve(process.cwd(), 'univault');
 const distDir = path.resolve(process.cwd(), 'dist');
 const staticDir = fs.existsSync(univaultDir) ? univaultDir : distDir;
 
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '35mb' }));
 
-app.post('/api/ai-chat', async (req, res) => {
+async function authenticateSupabaseUser(req: express.Request): Promise<{
+  token: string;
+  userId: string;
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+}> {
+  const supabaseUrl = process.env.SUPABASE_URL?.trim().replace(/\/$/, '');
+  const supabaseAnonKey = process.env.SUPABASE_ANON_KEY?.trim();
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw Object.assign(new Error('Supabase configuration is missing on the server.'), { status: 500 });
+  }
+
+  const authHeader = req.headers.authorization || '';
+  const token = authHeader.replace(/^Bearer\s+/i, '').trim();
+  if (!token) {
+    throw Object.assign(new Error('Please sign in first.'), { status: 401 });
+  }
+
+  const userRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
+    headers: {
+      apikey: supabaseAnonKey,
+      Authorization: `Bearer ${token}`,
+    },
+  });
+  if (!userRes.ok) {
+    throw Object.assign(new Error('Please sign in first.'), { status: 401 });
+  }
+  const user = (await userRes.json()) as { id?: string };
+  if (!user?.id) {
+    throw Object.assign(new Error('Please sign in first.'), { status: 401 });
+  }
+
+  return { token, userId: user.id, supabaseUrl, supabaseAnonKey };
+}
+
+app.post('/api/ai-process-file', async (req, res) => {
   try {
     const geminiKey = process.env.GEMINI_API_KEY?.trim();
-    const supabaseUrl = process.env.SUPABASE_URL?.trim().replace(/\/$/, '');
-    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY?.trim();
-
     if (!geminiKey) {
       res.status(500).json({ error: 'GEMINI_API_KEY is not configured in Secrets.' });
       return;
     }
-    if (!supabaseUrl || !supabaseAnonKey) {
-      res.status(500).json({ error: 'Supabase configuration is missing on the server.' });
+
+    const { token, supabaseUrl, supabaseAnonKey } = await authenticateSupabaseUser(req);
+    const { fileName = 'upload', mimeType = '', dataBase64 = '' } = req.body || {};
+
+    if (!dataBase64 || typeof dataBase64 !== 'string') {
+      res.status(400).json({ error: 'No file data was provided.' });
       return;
     }
 
-    const authHeader = req.headers.authorization || '';
-    const token = authHeader.replace(/^Bearer\s+/i, '').trim();
-    if (!token) {
-      res.status(401).json({ error: 'Please sign in first.' });
-      return;
-    }
-
-    const userRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
-      headers: {
-        apikey: supabaseAnonKey,
-        Authorization: `Bearer ${token}`,
-      },
+    const result = await processUploadedMaterial({
+      apiKey: geminiKey,
+      fileName: String(fileName),
+      mimeType: String(mimeType),
+      dataBase64,
     });
-    if (!userRes.ok) {
-      res.status(401).json({ error: 'Please sign in first.' });
+
+    const dup = await checkDuplicateQuestion({
+      supabaseUrl,
+      supabaseAnonKey,
+      token,
+      department: result.metadata.department,
+      courseCode: result.metadata.course_code,
+      year: result.metadata.year,
+      semester: result.metadata.semester,
+      bodyText: result.extractedText,
+    });
+
+    res.json({
+      ...result,
+      duplicateCheck: dup,
+    });
+  } catch (err: unknown) {
+    const status =
+      err && typeof err === 'object' && 'status' in err && typeof err.status === 'number'
+        ? err.status
+        : 400;
+    const message = err instanceof Error ? err.message : 'Failed to process uploaded file.';
+    res.status(status).json({ error: message });
+  }
+});
+
+app.post('/api/check-duplicate', async (req, res) => {
+  try {
+    const { token, supabaseUrl, supabaseAnonKey } = await authenticateSupabaseUser(req);
+    const { department = '', courseCode = '', year = null, semester = null, bodyText = '' } =
+      req.body || {};
+
+    const result = await checkDuplicateQuestion({
+      supabaseUrl,
+      supabaseAnonKey,
+      token,
+      department: String(department),
+      courseCode: String(courseCode),
+      year: year ? Number(year) : null,
+      semester: semester ? Number(semester) : null,
+      bodyText: String(bodyText),
+    });
+
+    res.json(result);
+  } catch (err: unknown) {
+    const status =
+      err && typeof err === 'object' && 'status' in err && typeof err.status === 'number'
+        ? err.status
+        : 500;
+    const message = err instanceof Error ? err.message : 'Duplicate check failed.';
+    res.status(status).json({ error: message });
+  }
+});
+
+app.post('/api/ai-chat', async (req, res) => {
+  try {
+    const geminiKey = process.env.GEMINI_API_KEY?.trim();
+    if (!geminiKey) {
+      res.status(500).json({ error: 'GEMINI_API_KEY is not configured in Secrets.' });
       return;
     }
-    const user = (await userRes.json()) as { id?: string };
-    if (!user?.id) {
-      res.status(401).json({ error: 'Please sign in first.' });
-      return;
-    }
+
+    const { token, userId, supabaseUrl, supabaseAnonKey } = await authenticateSupabaseUser(req);
+
+    const {
+      mode = 'chat',
+      course = '',
+      messages = [],
+      count = 5,
+      instructions = '',
+      attachmentContext = '',
+      targetQuestion = '',
+    } = req.body || {};
+
+    const cleanAttachment = String(attachmentContext || '').trim().slice(0, 45000);
 
     const [profRes, admRes] = await Promise.all([
       fetch(
-        `${supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(user.id)}&select=premium_until`,
+        `${supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=premium_until`,
         {
           headers: {
             apikey: supabaseAnonKey,
@@ -62,7 +163,7 @@ app.post('/api/ai-chat', async (req, res) => {
         }
       ),
       fetch(
-        `${supabaseUrl}/rest/v1/admins?user_id=eq.${encodeURIComponent(user.id)}&select=user_id`,
+        `${supabaseUrl}/rest/v1/admins?user_id=eq.${encodeURIComponent(userId)}&select=user_id`,
         {
           headers: {
             apikey: supabaseAnonKey,
@@ -71,20 +172,22 @@ app.post('/api/ai-chat', async (req, res) => {
         }
       ),
     ]);
-    const profRows = profRes.ok ? ((await profRes.json()) as Array<{ premium_until?: string | null }>) : [];
+    const profRows = profRes.ok
+      ? ((await profRes.json()) as Array<{ premium_until?: string | null }>)
+      : [];
     const admRows = admRes.ok ? ((await admRes.json()) as Array<{ user_id?: string }>) : [];
     const premiumUntil = profRows[0]?.premium_until;
     const isAdmin = admRows.length > 0;
     const isPremium = Boolean(premiumUntil && new Date(premiumUntil) > new Date());
-    if (!isPremium && !isAdmin) {
+    const hasUploadedSource = Boolean(cleanAttachment) && (mode === 'chat' || mode === 'explain');
+
+    if (!isPremium && !isAdmin && !hasUploadedSource) {
       res.status(402).json({ error: 'Premium required. Upgrade to continue.' });
       return;
     }
 
-    const { mode, course = '', messages = [], count = 5, instructions = '' } = req.body || {};
-
     let qs: Array<{ year?: number; semester?: number; question_content?: { content?: string } }> = [];
-    if (course) {
+    if (course && (isPremium || isAdmin)) {
       const qRes = await fetch(
         `${supabaseUrl}/rest/v1/questions?course_code=eq.${encodeURIComponent(course)}&status=eq.approved&select=year,semester,question_content(content)&order=year.desc&limit=15`,
         {
@@ -104,19 +207,15 @@ app.post('/api/ai-chat', async (req, res) => {
       .join('\n\n')
       .slice(0, 40000);
 
-    const ai = new GoogleGenAI({
-      apiKey: geminiKey,
-      httpOptions: {
-        headers: {
-          'User-Agent': 'aistudio-build',
-        },
-      },
-    });
+    const ai = createGeminiClient(geminiKey);
+    const attachedBlock = cleanAttachment
+      ? `\n\nUser-uploaded study material / transcript:\n${cleanAttachment}\n`
+      : '';
 
-    let systemInstruction = `You are a KNUST exam tutor. Past questions for ${course || 'the course'}:\n\n${bank || '(none on file)'}\n\n`;
+    let systemInstruction = `You are a KNUST exam tutor.${course ? ` Selected course: ${course}.` : ''}${bank ? `\nPast questions on file:\n\n${bank}` : ''}${attachedBlock}\n`;
 
     if (mode === 'quiz') {
-      systemInstruction += `Write ${count} multiple-choice questions in the style of these past questions. Extra instructions: ${instructions || 'none'}.`;
+      systemInstruction += `Write ${count} multiple-choice questions in the style of these materials. Extra instructions: ${instructions || 'none'}.`;
       const response = await ai.models.generateContent({
         model: 'gemini-4-hydrogen',
         contents: `Generate ${count} multiple-choice questions.`,
@@ -142,8 +241,23 @@ app.post('/api/ai-chat', async (req, res) => {
       return;
     }
 
+    if (mode === 'explain') {
+      systemInstruction +=
+        'Provide a thorough, detailed academic explanation. Structure your answer clearly with: (1) Core Concept & Definitions, (2) Step-by-Step Solution / Working with clear formulas and units, (3) Why each step works, and (4) Examiner Tips & Common Mistakes to avoid.';
+      const prompt = targetQuestion
+        ? `Give a detailed explanation for this specific question or topic:\n\n${String(targetQuestion)}`
+        : 'Provide a detailed, step-by-step explanation covering the key questions and concepts in the provided material.';
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: prompt,
+        config: { systemInstruction },
+      });
+      res.json({ text: response.text ?? '' });
+      return;
+    }
+
     systemInstruction +=
-      'Solve questions step by step with clear working. When asked to predict, analyse repeated topics, question formats, mark weighting and lecturer habits across years, and say which topics are most likely; label predictions as estimates, never guarantees.';
+      'Solve questions step by step with clear working, and provide deep explanations whenever asked about a specific question or uploaded document/recording. When asked to predict, analyse repeated topics, question formats, mark weighting and lecturer habits across years, and say which topics are most likely; label predictions as estimates, never guarantees.';
 
     const contents = (Array.isArray(messages) ? messages : [])
       .filter((m: { content?: unknown }) => m && typeof m.content === 'string' && m.content.trim())
@@ -160,8 +274,12 @@ app.post('/api/ai-chat', async (req, res) => {
 
     res.json({ text: response.text ?? '' });
   } catch (err: unknown) {
+    const status =
+      err && typeof err === 'object' && 'status' in err && typeof err.status === 'number'
+        ? err.status
+        : 500;
     const message = err instanceof Error ? err.message : 'AI service error';
-    res.status(500).json({ error: message });
+    res.status(status).json({ error: message });
   }
 });
 
@@ -206,4 +324,3 @@ app.get('*', (req, res) => {
 app.listen(port, '0.0.0.0', () => {
   console.log(`UniVault server listening on http://0.0.0.0:${port}`);
 });
-

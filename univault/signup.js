@@ -61,10 +61,7 @@ document.onmousemove = (e) => {
   const x = e.clientX / innerWidth - 0.5;
   const y = e.clientY / innerHeight - 0.5;
   const tilt = $(".tilt");
-  if (tilt) tilt.style.transform = `rotateY(${x * 18}deg) rotateX(${-y * 18}deg)`;
-  document
-    .querySelectorAll(".cube")
-    .forEach((c, i) => (c.style.translate = `${x * (30 + i * 25)}px ${y * (30 + i * 25)}px`));
+  if (tilt) tilt.style.transform = `rotateY(${x * 16}deg) rotateX(${-y * 16}deg)`;
 };
 
 sb.auth.getSession().then(({ data }) => {

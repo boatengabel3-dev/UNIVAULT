@@ -242,15 +242,45 @@ $("#adminUploadForm").onsubmit = async (e) => {
   msgEl.style.color = "var(--c)";
   msgEl.textContent = "Publishing...";
 
+  const rawCode = $("#ac").value.trim().toUpperCase().replace(/[-_]+/g, " ").replace(/\s+/g, " ");
+  const compactCode = rawCode.replace(/[^A-Z0-9]/g, "");
+  const codeMatch = compactCode.match(/^([A-Z]+)(\d+[A-Z]*)$/);
+  const normCode = codeMatch ? `${codeMatch[1]} ${codeMatch[2]}` : rawCode;
+
   const payload = {
-    d: $("#ad").value.trim(),
-    c: $("#ac").value.trim().toUpperCase(),
-    t: $("#at").value.trim(),
+    d: $("#ad").value.trim().replace(/\s+/g, " "),
+    c: normCode,
+    t: $("#at").value.trim().replace(/\s+/g, " "),
     y: +$("#ay").value,
     s: +$("#as").value,
     body: $("#ab").value.trim(),
     descr: $("#adescr").value.trim() || null,
   };
+
+  try {
+    const dupRes = await fetch("/api/check-duplicate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${currentSession.access_token}`,
+      },
+      body: JSON.stringify({
+        department: payload.d,
+        courseCode: payload.c,
+        year: payload.y,
+        semester: payload.s,
+        bodyText: payload.body,
+      }),
+    });
+    if (dupRes.ok) {
+      const dup = await dupRes.json();
+      if (dup.duplicate) {
+        msgEl.style.color = "#fca5a5";
+        msgEl.textContent = dup.reason || "Duplicate past question already exists.";
+        return;
+      }
+    }
+  } catch {}
 
   let { error } = await sb.rpc("admin_publish_question", payload);
 

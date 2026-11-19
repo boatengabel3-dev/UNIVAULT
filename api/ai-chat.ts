@@ -1,5 +1,6 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { Type } from '@google/genai';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { createGeminiClient } from './_lib/univault-ai.js';
 
 type VercelRequest = IncomingMessage & {
   method?: string;
@@ -71,6 +72,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    const body = await readJsonBody(req);
+    const mode = String(body.mode || 'chat');
+    const course = String(body.course || '');
+    const messages = Array.isArray(body.messages) ? body.messages : [];
+    const count = Number(body.count) || 5;
+    const instructions = String(body.instructions || '');
+    const attachmentContext = String(body.attachmentContext || '').trim().slice(0, 45000);
+    const targetQuestion = String(body.targetQuestion || '').trim();
+
     const [profRes, admRes] = await Promise.all([
       fetch(
         `${supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(user.id)}&select=premium_until`,
@@ -88,21 +98,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const premiumUntil = profRows[0]?.premium_until;
     const isAdmin = admRows.length > 0;
     const isPremium = Boolean(premiumUntil && new Date(premiumUntil) > new Date());
-    if (!isPremium && !isAdmin) {
+    const hasUploadedSource = Boolean(attachmentContext) && (mode === 'chat' || mode === 'explain');
+
+    if (!isPremium && !isAdmin && !hasUploadedSource) {
       res.status(402).json({ error: 'Premium required. Upgrade to continue.' });
       return;
     }
 
-    const body = await readJsonBody(req);
-    const mode = String(body.mode || 'chat');
-    const course = String(body.course || '');
-    const messages = Array.isArray(body.messages) ? body.messages : [];
-    const count = Number(body.count) || 5;
-    const instructions = String(body.instructions || '');
-
-    let qs: Array<{ year?: number; semester?: number; question_content?: { content?: string } }> =
-      [];
-    if (course) {
+    let qs: Array<{ year?: number; semester?: number; question_content?: { content?: string } }> = [];
+    if (course && (isPremium || isAdmin)) {
       const qRes = await fetch(
         `${supabaseUrl}/rest/v1/questions?course_code=eq.${encodeURIComponent(course)}&status=eq.approved&select=year,semester,question_content(content)&order=year.desc&limit=15`,
         { headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${token}` } }
@@ -115,15 +119,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .join('\n\n')
       .slice(0, 40000);
 
-    const ai = new GoogleGenAI({
-      apiKey: geminiKey,
-      httpOptions: { headers: { 'User-Agent': 'aistudio-build' } },
-    });
+    const ai = createGeminiClient(geminiKey);
+    const attachedBlock = attachmentContext
+      ? `\n\nUser-uploaded study material / transcript:\n${attachmentContext}\n`
+      : '';
 
-    let systemInstruction = `You are a KNUST exam tutor. Past questions for ${course || 'the course'}:\n\n${bank || '(none on file)'}\n\n`;
+    let systemInstruction = `You are a KNUST exam tutor.${course ? ` Selected course: ${course}.` : ''}${bank ? `\nPast questions on file:\n\n${bank}` : ''}${attachedBlock}\n`;
 
     if (mode === 'quiz') {
-      systemInstruction += `Write ${count} multiple-choice questions in the style of these past questions. Extra instructions: ${instructions || 'none'}.`;
+      systemInstruction += `Write ${count} multiple-choice questions in the style of these materials. Extra instructions: ${instructions || 'none'}.`;
       const response = await ai.models.generateContent({
         model: 'gemini-4-hydrogen',
         contents: `Generate ${count} multiple-choice questions.`,
@@ -149,8 +153,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    if (mode === 'explain') {
+      systemInstruction +=
+        'Provide a thorough, detailed academic explanation. Structure your answer clearly with: (1) Core Concept & Definitions, (2) Step-by-Step Solution / Working with clear formulas and units, (3) Why each step works, and (4) Examiner Tips & Common Mistakes to avoid.';
+      const prompt = targetQuestion
+        ? `Give a detailed explanation for this specific question or topic:\n\n${targetQuestion}`
+        : 'Provide a detailed, step-by-step explanation covering the key questions and concepts in the provided material.';
+      const response = await ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: prompt,
+        config: { systemInstruction },
+      });
+      res.status(200).json({ text: response.text ?? '' });
+      return;
+    }
+
     systemInstruction +=
-      'Solve questions step by step with clear working. When asked to predict, analyse repeated topics, question formats, mark weighting and lecturer habits across years, and say which topics are most likely; label predictions as estimates, never guarantees.';
+      'Solve questions step by step with clear working, and provide deep explanations whenever asked about a specific question or uploaded document/recording. When asked to predict, analyse repeated topics, question formats, mark weighting and lecturer habits across years, and say which topics are most likely; label predictions as estimates, never guarantees.';
 
     const contents = messages
       .filter(

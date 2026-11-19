@@ -57,11 +57,56 @@
 </div>
 <div id="dashList" class="row-list"></div>
 </section>
-<section id="chat" hidden><h1>AI Tutor</h1><div class="bar"><select class="courses" id="chatCourse"></select><button id="predict" class="ghost">Predict lecturer's style</button></div><div id="log" class="glass"></div><div class="bar"><input id="msg" placeholder="Paste or ask a past question..."><button id="send">Send</button></div></section>
+<section id="chat" hidden>
+<h1>AI Tutor</h1>
+<div class="bar">
+<select class="courses" id="chatCourse"></select>
+<button id="predict" type="button" class="ghost">Predict lecturer's style</button>
+<button id="explainBtn" type="button" class="ghost">Detailed explanation</button>
+<input id="chatFile" type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.mp3,.wav,.m4a,.aac,.ogg,.mp4,.webm,.mov,.txt,.png,.jpg,.jpeg" hidden>
+<button id="chatFileBtn" type="button" class="ghost">Upload PDF / DOCX / PPT / MP3 / MP4</button>
+</div>
+<div id="chatAttachmentBar" class="attach-bar" hidden>
+<div class="attach-meta">
+<strong id="chatAttachmentName"></strong>
+<small id="chatAttachmentInfo"></small>
+</div>
+<div class="attach-actions">
+<select id="chatDetectedQ" hidden aria-label="Select a question from the uploaded file to explain"></select>
+<button id="explainAttachedBtn" type="button" class="ghost">Explain selected question</button>
+<button id="clearChatFile" type="button" class="ghost">Remove</button>
+</div>
+</div>
+<div id="log" class="glass"></div>
+<div class="bar"><input id="msg" placeholder="Paste or ask a past question, or ask for a detailed explanation..."><button id="send">Send</button></div>
+</section>
 <section id="quiz" hidden><h1>Quiz Lab</h1><div class="glass form"><select class="courses" id="quizCourse"></select><input id="count" type="number" min="3" max="15" value="5"><textarea id="instr" placeholder="What should the AI set? e.g. Only calculation questions, hard level"></textarea><button id="gen">Generate quiz</button></div><div id="quizOut"></div></section>
-<section id="upload" hidden><h1>Upload &amp; earn GH₵3</h1><div class="glass form"><p>Each question is reviewed. You earn GH₵3 when it is approved. Only upload genuine past questions, no duplicates.</p><input id="ud" placeholder="Department"><input id="uc" placeholder="Course code, e.g. MATH 151"><input id="ut" placeholder="Course title"><input id="udescr" placeholder="Description or exam notes (optional)"><input id="uy" type="number" placeholder="Year, e.g. 2023"><select id="us"><option value="1">Semester 1</option><option value="2">Semester 2</option></select><textarea id="ub" placeholder="Type or paste the full question paper text"></textarea><button id="usub">Submit for review</button><div id="mine"></div></div></section>
+<section id="upload" hidden>
+<h1>Upload &amp; earn GH₵3</h1>
+<div class="glass form">
+<p>Upload a past question or lecture file (PDF, DOCX, PPT, MP3, or MP4) to extract text or transcribe audio/video with Gemini AI, or type directly below. UniVault checks for duplicate past questions automatically.</p>
+<label class="upload-drop" for="uploadFile">
+<input id="uploadFile" type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.mp3,.wav,.m4a,.aac,.ogg,.mp4,.webm,.mov,.txt,.png,.jpg,.jpeg" hidden>
+<strong>Choose file to extract or transcribe (PDF, DOCX, PPT, MP3, MP4)</strong>
+<span id="uploadFileStatus">Written documents are extracted with Gemini; audio &amp; video files are transcribed automatically.</span>
+</label>
+<div id="dupAlert" class="dup-banner" hidden role="alert"></div>
+<input id="ud" placeholder="Department (e.g. Computer Science)">
+<input id="uc" placeholder="Course code (e.g. MATH 151)">
+<input id="ut" placeholder="Course title">
+<input id="udescr" placeholder="Description or exam notes (optional)">
+<input id="uy" type="number" placeholder="Year, e.g. 2023">
+<select id="us"><option value="1">Semester 1</option><option value="2">Semester 2</option></select>
+<textarea id="ub" placeholder="Extracted transcript / question paper text appears here, or type/paste directly..."></textarea>
+<div class="bar" style="margin:0">
+<button id="usub" type="button">Submit for review</button>
+<button id="explainUploadBtn" type="button" class="ghost">Get Detailed AI Explanation</button>
+</div>
+<div id="mine"></div>
+</div>
+</section>
 <section id="wallet" hidden><h1>Wallet</h1><div class="glass form"><h2 id="bal"></h2><input id="wn" placeholder="Mobile Money account name"><input id="wm" placeholder="Mobile Money number"><select id="wk"><option value="MTN">MTN</option><option value="VOD">Telecel</option><option value="ATL">AirtelTigo</option></select><button id="wd">Withdraw (min GH₵10)</button><div id="pays"></div></div></section>
 <section id="pricing" hidden><h1>Go Premium</h1><div class="glass price"><h2>GH₵ 30 <small>/ month</small></h2><p>Read every past question and use the AI tutor, predictions and quizzes.</p><button id="pay">Pay with Paystack</button></div></section>
 </main>
-<dialog id="reader"><h3 id="rt"></h3><pre id="rb"></pre><div class="bar"><button id="solve">Solve with AI</button><button class="ghost" onclick="reader.close()">Close</button></div></dialog>
+<dialog id="reader"><h3 id="rt"></h3><pre id="rb"></pre><div class="bar"><button id="solve">Solve with AI</button><button id="explainPaper" class="ghost">Detailed Explanation</button><button class="ghost" onclick="reader.close()">Close</button></div></dialog>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" crossorigin="anonymous"></script><script src="https://js.paystack.co/v1/inline.js" crossorigin="anonymous"></script><script src="config.js"></script><script src="app.js"></script></body></html>

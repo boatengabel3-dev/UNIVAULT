@@ -274,3 +274,137 @@ const uvTransition = (() => {
 
   return { show, hide, go, tab };
 })();
+
+const uvMotion = (() => {
+  const prefersReduced = () =>
+    window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const hasFinePointer = () =>
+    window.matchMedia && window.matchMedia("(pointer: fine)").matches;
+
+  let observer = null;
+
+  function observeReveals(root = document) {
+    const scope = root && typeof root.querySelectorAll === "function" ? root : document;
+    const nodes = scope.querySelectorAll(".uv-reveal");
+    if (!nodes.length) return;
+
+    if (prefersReduced() || typeof IntersectionObserver === "undefined") {
+      nodes.forEach((n) => n.classList.add("uv-revealed"));
+      return;
+    }
+
+    if (!observer) {
+      observer = new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (!entry.isIntersecting) return;
+            entry.target.classList.add("uv-revealed");
+            observer.unobserve(entry.target);
+          });
+        },
+        { threshold: 0.08, rootMargin: "0px 0px -30px 0px" }
+      );
+    }
+
+    let idx = 0;
+    nodes.forEach((n) => {
+      if (n.classList.contains("uv-revealed")) return;
+      if (!n.style.getPropertyValue("--uv-delay")) {
+        n.style.setProperty("--uv-delay", `${Math.min(idx * 55, 280)}ms`);
+        idx++;
+      }
+      observer.observe(n);
+    });
+  }
+
+  function init3D() {
+    if (prefersReduced() || !hasFinePointer()) return;
+
+    let tx = 0, ty = 0, cx = 0, cy = 0, raf = 0;
+    const cubes = () => document.querySelectorAll(".scene .cube");
+    const crest = () => document.querySelector(".hero .crest");
+
+    function step() {
+      cx += (tx - cx) * 0.08;
+      cy += (ty - cy) * 0.08;
+
+      cubes().forEach((c, i) => {
+        const depth = 22 + i * 18;
+        c.style.setProperty("--px", `${(cx * depth).toFixed(2)}px`);
+        c.style.setProperty("--py", `${(cy * depth).toFixed(2)}px`);
+      });
+
+      const hCrest = crest();
+      if (hCrest) {
+        hCrest.style.setProperty("--hx", `${(cx * 16).toFixed(2)}px`);
+        hCrest.style.setProperty("--hy", `${(cy * 12).toFixed(2)}px`);
+      }
+
+      if (Math.abs(tx - cx) > 0.001 || Math.abs(ty - cy) > 0.001) {
+        raf = requestAnimationFrame(step);
+      } else {
+        raf = 0;
+      }
+    }
+
+    window.addEventListener(
+      "pointermove",
+      (e) => {
+        if (window.innerWidth < 860) return;
+        tx = e.clientX / Math.max(window.innerWidth, 1) - 0.5;
+        ty = e.clientY / Math.max(window.innerHeight, 1) - 0.5;
+        if (!raf && (cubes().length || crest())) {
+          raf = requestAnimationFrame(step);
+        }
+      },
+      { passive: true }
+    );
+
+    const TILT_SEL = ".feat .card, .tcard, .archive-card, .stat";
+    let activeCard = null;
+
+    document.addEventListener(
+      "pointermove",
+      (e) => {
+        if (window.innerWidth < 860) return;
+        const card = e.target?.closest?.(TILT_SEL);
+        if (activeCard && activeCard !== card) {
+          activeCard.style.removeProperty("--rx");
+          activeCard.style.removeProperty("--ry");
+          activeCard = null;
+        }
+        if (!card) return;
+        activeCard = card;
+        const rect = card.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+        const px = (e.clientX - rect.left) / rect.width;
+        const py = (e.clientY - rect.top) / rect.height;
+        const maxDeg = 4.2;
+        const ry = ((px - 0.5) * maxDeg * 2).toFixed(2);
+        const rx = (((0.5 - py) * maxDeg * 2)).toFixed(2);
+        card.style.setProperty("--rx", `${rx}deg`);
+        card.style.setProperty("--ry", `${ry}deg`);
+        card.style.setProperty("--mx", `${(px * 100).toFixed(1)}%`);
+        card.style.setProperty("--my", `${(py * 100).toFixed(1)}%`);
+      },
+      { passive: true }
+    );
+
+    document.addEventListener("pointerleave", () => {
+      if (activeCard) {
+        activeCard.style.removeProperty("--rx");
+        activeCard.style.removeProperty("--ry");
+        activeCard = null;
+      }
+    });
+  }
+
+  document.addEventListener("DOMContentLoaded", () => {
+    observeReveals(document);
+    init3D();
+  });
+
+  window.uvRevealObserve = observeReveals;
+  return { observeReveals };
+})();
+

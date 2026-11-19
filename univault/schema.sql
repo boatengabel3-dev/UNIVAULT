@@ -1,6 +1,6 @@
 -- UniVault schema (fresh project). If you ran the old schema, drop those tables first.
 create table questions(id uuid default gen_random_uuid() primary key,department text not null,course_code text not null,course_title text,description text,year int not null,semester int,uploader uuid references auth.users,status text default 'pending',created_at timestamptz default now());
-create table question_content(question_id uuid primary key references questions on delete cascade,content text,file_url text);
+create table question_content(question_id uuid primary key references questions on delete cascade,content text,content_hash text,file_url text);
 create table profiles(id uuid primary key references auth.users on delete cascade,full_name text,balance int default 0,premium_until timestamptz,created_at timestamptz default now());
 create table payments(reference text primary key,user_id uuid,amount int,created_at timestamptz default now());
 create table payouts(id uuid default gen_random_uuid() primary key,user_id uuid references auth.users,amount int,account_name text,momo text,network text,status text default 'pending',created_at timestamptz default now());
@@ -17,16 +17,105 @@ create policy "am i admin" on admins for select using(user_id=auth.uid());
 create or replace function public.new_profile() returns trigger language plpgsql security definer set search_path = public as $$ begin insert into public.profiles(id,full_name) values(new.id,new.raw_user_meta_data->>'full_name') on conflict (id) do nothing; return new; end $$;
 drop trigger if exists on_signup on auth.users;
 create trigger on_signup after insert on auth.users for each row execute function public.new_profile();
-create function submit_question(d text,c text,t text,y int,s int,body text,descr text default null) returns void language plpgsql security definer set search_path = public as $$
-declare qid uuid; begin if auth.uid() is null then raise exception 'Sign in first'; end if;
-if length(coalesce(body,''))<50 then raise exception 'Question text is too short'; end if;
-insert into public.questions(department,course_code,course_title,description,year,semester,uploader) values(d,upper(c),t,descr,y,s,auth.uid()) returning id into qid;
-insert into public.question_content(question_id,content) values(qid,body); end $$;
-create function admin_publish_question(d text,c text,t text,y int,s int,body text,descr text default null) returns uuid language plpgsql security definer set search_path = public as $$
-declare qid uuid; begin if not public.is_admin() then raise exception 'forbidden'; end if;
-if length(coalesce(body,''))<20 then raise exception 'Question text is too short'; end if;
-insert into public.questions(department,course_code,course_title,description,year,semester,uploader,status) values(d,upper(c),t,descr,y,s,auth.uid(),'approved') returning id into qid;
-insert into public.question_content(question_id,content) values(qid,body); return qid; end $$;
+
+-- Data normalization & duplicate prevention helpers
+alter table if exists public.question_content add column if not exists content_hash text;
+create or replace function public.normalize_code_key(c text) returns text language sql immutable as $$ select regexp_replace(upper(coalesce(c,'')), '[^A-Z0-9]', '', 'g') $$;
+create or replace function public.normalize_body_hash(body text) returns text language sql immutable as $$ select md5(regexp_replace(lower(coalesce(body,'')), '[^a-z0-9]+', '', 'g')) $$;
+update public.question_content set content_hash = public.normalize_body_hash(content) where content_hash is null and content is not null;
+
+create or replace function public.check_question_duplicate(c text, y int default 0, s int default 0, body text default '') returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  ckey text := public.normalize_code_key(c);
+  bhash text := case when length(coalesce(body,'')) >= 30 then public.normalize_body_hash(body) else null end;
+  found_q record;
+begin
+  if auth.uid() is null then raise exception 'Sign in first'; end if;
+  if ckey <> '' and coalesce(y, 0) > 0 then
+    select q.id, q.course_code, q.year, q.semester, q.status into found_q
+    from public.questions q
+    where q.status <> 'rejected'
+      and public.normalize_code_key(q.course_code) = ckey
+      and q.year = y
+      and (coalesce(s, 0) = 0 or coalesce(q.semester, 0) = 0 or q.semester = s)
+    limit 1;
+    if found_q.id is not null then
+      return jsonb_build_object(
+        'duplicate', true,
+        'match_id', found_q.id,
+        'course_code', found_q.course_code,
+        'year', found_q.year,
+        'semester', found_q.semester,
+        'status', found_q.status,
+        'match_type', 'course_year_semester',
+        'reason', format('Duplicate past question: %s (%s%s) already exists in UniVault (%s).', found_q.course_code, found_q.year, case when found_q.semester is not null then ' Sem '||found_q.semester else '' end, found_q.status)
+      );
+    end if;
+  end if;
+
+  if bhash is not null then
+    select q.id, q.course_code, q.year, q.semester, q.status into found_q
+    from public.question_content qc
+    join public.questions q on q.id = qc.question_id
+    where q.status <> 'rejected'
+      and coalesce(qc.content_hash, public.normalize_body_hash(qc.content)) = bhash
+    limit 1;
+    if found_q.id is not null then
+      return jsonb_build_object(
+        'duplicate', true,
+        'match_id', found_q.id,
+        'course_code', found_q.course_code,
+        'year', found_q.year,
+        'semester', found_q.semester,
+        'status', found_q.status,
+        'match_type', 'exact_content',
+        'reason', format('Duplicate content detected: This exact past question already exists under %s (%s%s).', found_q.course_code, found_q.year, case when found_q.semester is not null then ' Sem '||found_q.semester else '' end)
+      );
+    end if;
+  end if;
+
+  return jsonb_build_object('duplicate', false);
+end $$;
+
+create or replace function submit_question(d text,c text,t text,y int,s int,body text,descr text default null) returns void language plpgsql security definer set search_path = public as $$
+declare
+  qid uuid;
+  clean_dep text := trim(regexp_replace(coalesce(d,''), '\s+', ' ', 'g'));
+  clean_code text := upper(trim(regexp_replace(coalesce(c,''), '\s+', ' ', 'g')));
+  clean_title text := trim(regexp_replace(coalesce(t,''), '\s+', ' ', 'g'));
+  clean_body text := trim(coalesce(body,''));
+  dup jsonb;
+begin
+  if auth.uid() is null then raise exception 'Sign in first'; end if;
+  if length(clean_body)<50 then raise exception 'Question text is too short'; end if;
+  dup := public.check_question_duplicate(clean_code, y, s, clean_body);
+  if coalesce((dup->>'duplicate')::boolean, false) then
+    raise exception '%', dup->>'reason';
+  end if;
+  insert into public.questions(department,course_code,course_title,description,year,semester,uploader) values(clean_dep,clean_code,clean_title,descr,y,s,auth.uid()) returning id into qid;
+  insert into public.question_content(question_id,content,content_hash) values(qid,clean_body,public.normalize_body_hash(clean_body));
+end $$;
+
+create or replace function admin_publish_question(d text,c text,t text,y int,s int,body text,descr text default null) returns uuid language plpgsql security definer set search_path = public as $$
+declare
+  qid uuid;
+  clean_dep text := trim(regexp_replace(coalesce(d,''), '\s+', ' ', 'g'));
+  clean_code text := upper(trim(regexp_replace(coalesce(c,''), '\s+', ' ', 'g')));
+  clean_title text := trim(regexp_replace(coalesce(t,''), '\s+', ' ', 'g'));
+  clean_body text := trim(coalesce(body,''));
+  dup jsonb;
+begin
+  if not public.is_admin() then raise exception 'forbidden'; end if;
+  if length(clean_body)<20 then raise exception 'Question text is too short'; end if;
+  dup := public.check_question_duplicate(clean_code, y, s, clean_body);
+  if coalesce((dup->>'duplicate')::boolean, false) then
+    raise exception '%', dup->>'reason';
+  end if;
+  insert into public.questions(department,course_code,course_title,description,year,semester,uploader,status) values(clean_dep,clean_code,clean_title,descr,y,s,auth.uid(),'approved') returning id into qid;
+  insert into public.question_content(question_id,content,content_hash) values(qid,clean_body,public.normalize_body_hash(clean_body));
+  return qid;
+end $$;
+
 -- approving credits the uploader GH₵3 (300 pesewas), once per question
 create function approve_question(qid uuid) returns void language plpgsql security definer set search_path = public as $$
 declare u uuid; begin if not public.is_admin() then raise exception 'forbidden'; end if;
@@ -48,4 +137,3 @@ create policy "testimonials admin update" on testimonials for update using(is_ad
 create policy "testimonials admin delete" on testimonials for delete using(is_admin());
 -- MAKE AN ADMIN (run in SQL editor with the user's id from Authentication > Users):
 -- insert into admins(user_id) values('PASTE-USER-UUID') on conflict (user_id) do nothing;
-

@@ -1,4 +1,4 @@
-let Q = [], user = null, P = {}, hist = [], cur = null, quiz = [], myUploads = [], myPayouts = [], dashStatus = "all";
+let Q = [], user = null, P = {}, hist = [], cur = null, quiz = [], myUploads = [], myPayouts = [], dashStatus = "all", activeAttachment = null, dupCheckTimer = null;
 
 function setMenuOpen(open) {
   const menu = $("#navMenu"), btn = $("#menuBtn");
@@ -29,6 +29,7 @@ function show(v) {
       b.classList.toggle("on", active);
       if (active && $("#activeViewLabel")) $("#activeViewLabel").textContent = b.textContent;
     });
+    window.uvRevealObserve?.(targetSection);
   };
 
   setMenuOpen(false);
@@ -135,9 +136,10 @@ function renderDashboard() {
         : "";
       const sem = q.semester ? ` · Sem ${q.semester}` : "";
       const desc = q.description ? ` · ${esc(q.description)}` : "";
-      return `<div class="row-item"><div class="row-main"><strong>${esc(q.course_code)}${q.course_title ? " — " + esc(q.course_title) : ""}</strong><span>${esc(q.department)} · ${q.year}${sem}${desc}</span></div><div class="row-meta"><span style="color:var(--mut)">${esc(dateStr)}</span><span class="${statusClass}">${statusLabel}</span></div></div>`;
+      return `<div class="row-item uv-reveal"><div class="row-main"><strong>${esc(q.course_code)}${q.course_title ? " — " + esc(q.course_title) : ""}</strong><span>${esc(q.department)} · ${q.year}${sem}${desc}</span></div><div class="row-meta"><span style="color:var(--mut)">${esc(dateStr)}</span><span class="${statusClass}">${statusLabel}</span></div></div>`;
     })
     .join("");
+  window.uvRevealObserve?.(listEl);
 }
 
 if ($("#dashFilter")) {
@@ -230,7 +232,7 @@ function render() {
     courses
       .map(
         ([c, v]) =>
-          `<article class="card archive-card"><div><div class="card-meta"><span>${esc(v.d)}</span><span class="card-count">${v.i.length} paper${v.i.length === 1 ? "" : "s"}</span></div><h3>${esc(c)}<span>${esc(v.t || "Past Examination Papers")}</span></h3>${v.desc ? `<p class="card-note">${esc(v.desc)}</p>` : ""}</div><div class="chips">${v.i
+          `<article class="card archive-card uv-reveal"><div><div class="card-meta"><span>${esc(v.d)}</span><span class="card-count">${v.i.length} paper${v.i.length === 1 ? "" : "s"}</span></div><h3>${esc(c)}<span>${esc(v.t || "Past Examination Papers")}</span></h3>${v.desc ? `<p class="card-note">${esc(v.desc)}</p>` : ""}</div><div class="chips">${v.i
             .map(
               (q) =>
                 `<button data-id="${q.id}">${q.year}${q.semester ? " · S" + q.semester : ""}</button>`
@@ -239,6 +241,7 @@ function render() {
       )
       .join("") ||
     `<div class="card"><p style="color:var(--mut)">${Q.length ? "No approved past papers match your search." : "No approved questions yet."}</p></div>`;
+  window.uvRevealObserve?.($("#list"));
 }
 
 $("#dep").onchange = $("#search").oninput = render;
@@ -275,21 +278,243 @@ $("#solve").onclick = () => {
   show("chat");
 };
 
+if ($("#explainPaper")) {
+  $("#explainPaper").onclick = () => {
+    const paperTitle = `${cur.course_code} (${cur.year}${cur.semester ? " Sem " + cur.semester : ""})`;
+    const content = cur.content || "";
+    $("#reader").close();
+    $("#chatCourse").value = cur.course_code;
+    show("chat");
+    requestDetailedExplanation(
+      `Provide a detailed step-by-step explanation for ${paperTitle}`,
+      content
+    );
+  };
+}
+
+function normSpaces(v) {
+  return String(v || "").replace(/\s+/g, " ").trim();
+}
+
+function normCourseCode(v) {
+  const cleaned = normSpaces(v).toUpperCase().replace(/[-_]+/g, " ");
+  const compact = cleaned.replace(/[^A-Z0-9]/g, "");
+  const m = compact.match(/^([A-Z]+)(\d+[A-Z]*)$/);
+  return { canonical: m ? `${m[1]} ${m[2]}` : cleaned, key: compact };
+}
+
+function normBodyKey(v) {
+  return String(v || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function localDuplicateCheck(courseCode, year, semester, bodyText) {
+  const { key: ckey } = normCourseCode(courseCode);
+  const y = Number(year) || 0;
+  const s = Number(semester) || 0;
+  const pool = [...Q, ...myUploads.filter((x) => x.status !== "rejected")];
+
+  if (ckey && y) {
+    const match = pool.find(
+      (q) =>
+        normCourseCode(q.course_code).key === ckey &&
+        Number(q.year) === y &&
+        (!s || !q.semester || Number(q.semester) === s)
+    );
+    if (match) {
+      return {
+        duplicate: true,
+        reason: `Duplicate past question detected: ${match.course_code} (${match.year}${match.semester ? " Sem " + match.semester : ""}) already exists in UniVault (${match.status}).`,
+      };
+    }
+  }
+
+  const nb = normBodyKey(bodyText);
+  if (nb.length >= 60) {
+    for (const q of pool) {
+      const candidate = q.question_content?.content || "";
+      const nc = normBodyKey(candidate);
+      if (nc.length >= 60 && nc === nb) {
+        return {
+          duplicate: true,
+          reason: `Duplicate content detected under ${q.course_code} (${q.year}).`,
+        };
+      }
+    }
+  }
+
+  return { duplicate: false };
+}
+
+function showDupBanner(result) {
+  const banner = $("#dupAlert");
+  if (!banner) return;
+  if (!result || (!result.duplicate && !result.verifiedMessage)) {
+    banner.hidden = true;
+    banner.className = "dup-banner";
+    banner.textContent = "";
+    return;
+  }
+  banner.hidden = false;
+  if (result.duplicate) {
+    banner.className = "dup-banner is-dup";
+    banner.textContent = result.reason || "This past question already exists in UniVault.";
+  } else {
+    banner.className = "dup-banner is-ok";
+    banner.textContent = result.verifiedMessage;
+  }
+}
+
+async function runDuplicateCheck(courseCode, year, semester, bodyText, showClear = false) {
+  const local = localDuplicateCheck(courseCode, year, semester, bodyText);
+  if (local.duplicate) {
+    showDupBanner(local);
+    return local;
+  }
+  try {
+    const {
+      data: { session },
+    } = await sb.auth.getSession();
+    if (!session?.access_token) return local;
+    const res = await fetch("/api/check-duplicate", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.access_token}`,
+      },
+      body: JSON.stringify({
+        department: $("#ud")?.value || "",
+        courseCode,
+        year: year ? Number(year) : null,
+        semester: semester ? Number(semester) : null,
+        bodyText,
+      }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.duplicate) {
+        showDupBanner(data);
+        return data;
+      }
+      if (showClear && (normCourseCode(courseCode).key || String(bodyText || "").trim().length >= 50)) {
+        showDupBanner({
+          duplicate: false,
+          verifiedMessage: `Normalized check passed (${data.normalizedCode || "ready"}): no duplicate past question found.`,
+        });
+      } else {
+        showDupBanner(null);
+      }
+      return data;
+    }
+  } catch {}
+  if (showClear) showDupBanner(null);
+  return local;
+}
+
+function readFileAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    if (!file) return reject(new Error("No file selected."));
+    if (file.size > 20 * 1024 * 1024) {
+      return reject(new Error("File is larger than 20 MB. Please upload a smaller file."));
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const res = String(reader.result || "");
+      const idx = res.indexOf(",");
+      resolve(idx >= 0 ? res.slice(idx + 1) : res);
+    };
+    reader.onerror = () => reject(new Error("Could not read the selected file."));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function processFileWithGemini(file) {
+  const {
+    data: { session },
+  } = await sb.auth.getSession();
+  if (!session?.access_token) {
+    throw new Error("Please sign in first.");
+  }
+  const dataBase64 = await readFileAsBase64(file);
+  const res = await fetch("/api/ai-process-file", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${session.access_token}`,
+    },
+    body: JSON.stringify({
+      fileName: file.name,
+      mimeType: file.type || "application/octet-stream",
+      dataBase64,
+    }),
+  });
+  const ct = res.headers.get("content-type") || "";
+  if (!ct.includes("application/json")) {
+    if (res.status === 413) {
+      throw new Error("File exceeds the hosted upload limit (~4 MB). Please upload a smaller or compressed file.");
+    }
+    throw new Error(`Upload failed (${res.status}).`);
+  }
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "Failed to process file.");
+  return data;
+}
+
+function setActiveAttachment(data) {
+  activeAttachment = data;
+  const bar = $("#chatAttachmentBar");
+  if (!bar) return;
+  if (!data) {
+    bar.hidden = true;
+    if ($("#chatDetectedQ")) {
+      $("#chatDetectedQ").hidden = true;
+      $("#chatDetectedQ").innerHTML = "";
+    }
+    return;
+  }
+  bar.hidden = false;
+  $("#chatAttachmentName").textContent = `${data.fileName} (${data.mediaType === "audio" ? "Audio Transcript" : data.mediaType === "video" ? "Video Transcript & Frames" : "Written Document"})`;
+  $("#chatAttachmentInfo").textContent =
+    data.summary || "Loaded into AI Tutor context. Ask any question or request a detailed explanation.";
+
+  const qSel = $("#chatDetectedQ");
+  if (qSel) {
+    const qs = Array.isArray(data.questionsDetected) ? data.questionsDetected : [];
+    if (qs.length > 0) {
+      qSel.hidden = false;
+      qSel.innerHTML =
+        '<option value="">Explain full material / overview</option>' +
+        qs.map((q, i) => `<option value="${esc(q)}">Q${i + 1}: ${esc(q.slice(0, 75))}${q.length > 75 ? "..." : ""}</option>`).join("");
+    } else {
+      qSel.hidden = true;
+      qSel.innerHTML = "";
+    }
+  }
+}
+
 async function ai(body) {
   if (!isValidSupabaseUrl) {
     throw new Error("Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.");
   }
 
-  const { data, error } = await sb.functions.invoke("ai-chat", { body });
-  if (!error) return data.text;
+  // Always call /api/ai-chat directly when attachmentContext or explain mode is used, or fallback automatically
+  const hasRichPayload = Boolean(body.attachmentContext) || body.mode === "explain";
+  let m = "Edge Function request failed.";
 
-  let m = error.message || "Edge Function request failed.";
-  try {
-    const jsonErr = await error.context?.json?.();
-    if (jsonErr?.error) m = jsonErr.error;
-  } catch {}
+  if (!hasRichPayload) {
+    const { data, error } = await sb.functions.invoke("ai-chat", { body });
+    if (!error) return data.text;
+    m = error.message || m;
+    try {
+      const jsonErr = await error.context?.json?.();
+      if (jsonErr?.error) m = jsonErr.error;
+    } catch {}
+  }
 
-  if (!/sign in|premium/i.test(m)) {
+  if (hasRichPayload || !/sign in|premium/i.test(m)) {
     try {
       const {
         data: { session },
@@ -337,18 +562,60 @@ function bub(t, c) {
   return d;
 }
 
+function buildAttachmentContext() {
+  if (!activeAttachment) return "";
+  const parts = [`File: ${activeAttachment.fileName} (${activeAttachment.mediaType})`];
+  if (activeAttachment.transcript && activeAttachment.transcript !== activeAttachment.extractedText) {
+    parts.push(`Verbatim Transcript:\n${activeAttachment.transcript}`);
+  }
+  if (activeAttachment.extractedText) {
+    parts.push(`Extracted Content:\n${activeAttachment.extractedText}`);
+  }
+  return parts.join("\n\n");
+}
+
 async function ask(text) {
   bub(text, "u");
   hist.push({ role: "user", content: text });
   const w = bub("Thinking...", "a");
   if ($("#send")) $("#send").disabled = true;
   try {
-    const r = await ai({ mode: "chat", course: $("#chatCourse").value, messages: hist });
+    const r = await ai({
+      mode: "chat",
+      course: $("#chatCourse").value,
+      messages: hist,
+      attachmentContext: buildAttachmentContext(),
+    });
     w.textContent = r || "No response returned.";
     hist.push({ role: "assistant", content: r });
   } catch (e) {
     w.textContent = e.message;
     hist.pop();
+  } finally {
+    if ($("#send")) $("#send").disabled = false;
+  }
+}
+
+async function requestDetailedExplanation(targetQuestion, inlineContext = "") {
+  const userLabel = targetQuestion
+    ? `Detailed explanation requested:\n${targetQuestion}`
+    : "Provide a detailed explanation of the uploaded material.";
+  bub(userLabel, "u");
+  const w = bub("Preparing detailed explanation...", "a");
+  if ($("#send")) $("#send").disabled = true;
+  try {
+    const context = inlineContext || buildAttachmentContext();
+    const r = await ai({
+      mode: "explain",
+      course: $("#chatCourse").value,
+      targetQuestion,
+      attachmentContext: context,
+    });
+    w.textContent = r || "No explanation returned.";
+    hist.push({ role: "user", content: userLabel });
+    hist.push({ role: "assistant", content: r || "" });
+  } catch (e) {
+    w.textContent = e.message;
   } finally {
     if ($("#send")) $("#send").disabled = false;
   }
@@ -373,6 +640,59 @@ $("#predict").onclick = () =>
   ask(
     "Based on the past questions, predict how this lecturer sets questions: recurring topics, question types, mark distribution, and the most likely topics next exam."
   );
+
+if ($("#explainBtn")) {
+  $("#explainBtn").onclick = () => {
+    const typed = $("#msg").value.trim();
+    const selectedQ = $("#chatDetectedQ")?.value || "";
+    const target = typed || selectedQ;
+    if (!target && !activeAttachment) {
+      $("#msg").focus();
+      bub("Type or paste a specific question (or upload a PDF/DOCX/PPT/MP3/MP4) to get a detailed explanation.", "a");
+      return;
+    }
+    if (typed) $("#msg").value = "";
+    requestDetailedExplanation(target);
+  };
+}
+
+if ($("#explainAttachedBtn")) {
+  $("#explainAttachedBtn").onclick = () => {
+    const selectedQ = $("#chatDetectedQ")?.value || "";
+    requestDetailedExplanation(
+      selectedQ || "Explain all key questions and concepts from the uploaded file in detail."
+    );
+  };
+}
+
+if ($("#chatFileBtn") && $("#chatFile")) {
+  $("#chatFileBtn").onclick = () => $("#chatFile").click();
+  $("#chatFile").onchange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    $("#chatFileBtn").disabled = true;
+    const statusBub = bub(`Processing "${file.name}" with Gemini AI...`, "a");
+    try {
+      const data = await processFileWithGemini(file);
+      setActiveAttachment(data);
+      const actionLabel = data.mediaType === "written" ? "Extracted" : "Transcribed";
+      statusBub.textContent =
+        `${actionLabel} "${data.fileName}".\n\nSummary: ${data.summary || "Ready."}\n\n` +
+        (data.questionsDetected?.length
+          ? `Detected ${data.questionsDetected.length} question(s). Pick one above or ask me for a detailed explanation!`
+          : "Ask me any question about this file or click Detailed explanation.");
+    } catch (err) {
+      statusBub.textContent = err.message || "Could not process file.";
+    } finally {
+      $("#chatFileBtn").disabled = false;
+      $("#chatFile").value = "";
+    }
+  };
+}
+
+if ($("#clearChatFile")) {
+  $("#clearChatFile").onclick = () => setActiveAttachment(null);
+}
 
 $("#gen").onclick = async () => {
   const o = $("#quizOut");
@@ -419,25 +739,150 @@ $("#gen").onclick = async () => {
   }
 };
 
+function scheduleUploadDupCheck() {
+  if (dupCheckTimer) clearTimeout(dupCheckTimer);
+  dupCheckTimer = setTimeout(() => {
+    runDuplicateCheck($("#uc").value, $("#uy").value, $("#us").value, $("#ub").value, false);
+  }, 450);
+}
+
+["#uc", "#uy", "#us", "#ub"].forEach((sel) => {
+  const node = $(sel);
+  if (node) {
+    node.addEventListener("input", scheduleUploadDupCheck);
+    node.addEventListener("change", scheduleUploadDupCheck);
+  }
+});
+
+if ($("#uploadFile")) {
+  $("#uploadFile").onchange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const stEl = $("#uploadFileStatus");
+    if (stEl) {
+      stEl.textContent = `Processing "${file.name}" with Gemini AI (extracting text / transcribing media)...`;
+    }
+    showDupBanner(null);
+    try {
+      const data = await processFileWithGemini(file);
+      const formattedBody =
+        data.transcript && data.transcript !== data.extractedText
+          ? `${data.extractedText}\n\n[Transcript]\n${data.transcript}`
+          : data.extractedText || data.transcript || "";
+      if (formattedBody) $("#ub").value = formattedBody;
+
+      const meta = data.metadata || {};
+      if (meta.department && !$("#ud").value.trim()) $("#ud").value = meta.department;
+      if (meta.course_code && !$("#uc").value.trim()) $("#uc").value = meta.course_code;
+      if (meta.course_title && !$("#ut").value.trim()) $("#ut").value = meta.course_title;
+      if (meta.year && !$("#uy").value.trim()) $("#uy").value = String(meta.year);
+      if ((meta.semester === 1 || meta.semester === 2) && $("#us")) $("#us").value = String(meta.semester);
+      if (meta.description && $("#udescr") && !$("#udescr").value.trim()) {
+        $("#udescr").value = meta.description;
+      }
+
+      setActiveAttachment(data);
+      if (stEl) {
+        stEl.textContent =
+          data.mediaType === "written"
+            ? `Extracted written content from "${file.name}". Review metadata and submit below.`
+            : `Transcribed ${data.mediaType} recording "${file.name}". Review and submit below.`;
+      }
+
+      const dup = await runDuplicateCheck(
+        $("#uc").value,
+        $("#uy").value,
+        $("#us").value,
+        $("#ub").value,
+        true
+      );
+      if (data.duplicateCheck?.duplicate && !dup.duplicate) {
+        showDupBanner(data.duplicateCheck);
+      }
+    } catch (err) {
+      if (stEl) stEl.textContent = err.message || "Could not process uploaded file.";
+    } finally {
+      $("#uploadFile").value = "";
+    }
+  };
+}
+
+if ($("#explainUploadBtn")) {
+  $("#explainUploadBtn").onclick = () => {
+    const bodyText = $("#ub").value.trim();
+    if (!bodyText && !activeAttachment) {
+      showDupBanner({
+        duplicate: true,
+        reason: "Upload a file (PDF, DOCX, PPT, MP3, MP4) or paste a question first to get an explanation.",
+      });
+      return;
+    }
+    const courseVal = normCourseCode($("#uc").value).canonical;
+    if (courseVal && $("#chatCourse")) {
+      const opt = [...$("#chatCourse").options].find((o) => o.value === courseVal);
+      if (opt) $("#chatCourse").value = courseVal;
+    }
+    show("chat");
+    requestDetailedExplanation(
+      activeAttachment?.questionsDetected?.[0] ||
+        `Give a detailed explanation for this uploaded ${courseVal || "course"} material.`,
+      bodyText || buildAttachmentContext()
+    );
+  };
+}
+
 $("#usub").onclick = async () => {
+  const cleanCode = normCourseCode($("#uc").value).canonical;
+  const cleanDep = normSpaces($("#ud").value);
+  const cleanTitle = normSpaces($("#ut").value);
+  const cleanBody = $("#ub").value.trim();
+  $("#ud").value = cleanDep;
+  $("#uc").value = cleanCode;
+  $("#ut").value = cleanTitle;
+
   const payload = {
-    d: $("#ud").value.trim(),
-    c: $("#uc").value.trim(),
-    t: $("#ut").value.trim(),
+    d: cleanDep,
+    c: cleanCode,
+    t: cleanTitle,
     y: +$("#uy").value,
     s: +$("#us").value,
-    body: $("#ub").value,
+    body: cleanBody,
   };
-  const descr = $("#udescr") ? $("#udescr").value.trim() : "";
-  let { error } = await sb.rpc("submit_question", descr ? { ...payload, descr } : payload);
-  if (error && descr && /submit_question/i.test(error.message)) {
-    ({ error } = await sb.rpc("submit_question", payload));
+  if (!payload.d || !payload.c || !payload.y) {
+    showDupBanner({
+      duplicate: true,
+      reason: "Please fill in Department, Course code, and Year before submitting.",
+    });
+    return;
   }
-  if (error) return alert(error.message);
-  alert("Submitted for review!");
-  $("#ub").value = "";
-  if ($("#udescr")) $("#udescr").value = "";
-  await refresh();
+
+  $("#usub").disabled = true;
+  try {
+    const dup = await runDuplicateCheck(cleanCode, payload.y, payload.s, cleanBody, false);
+    if (dup.duplicate) {
+      showDupBanner(dup);
+      return;
+    }
+
+    const descr = $("#udescr") ? $("#udescr").value.trim() : "";
+    let { error } = await sb.rpc("submit_question", descr ? { ...payload, descr } : payload);
+    if (error && descr && /submit_question/i.test(error.message)) {
+      ({ error } = await sb.rpc("submit_question", payload));
+    }
+    if (error) {
+      showDupBanner({ duplicate: true, reason: error.message });
+      return;
+    }
+    showDupBanner({
+      duplicate: false,
+      verifiedMessage: "Submitted for review! You will earn GH₵3 once approved.",
+    });
+    $("#ub").value = "";
+    if ($("#udescr")) $("#udescr").value = "";
+    await refresh();
+  } finally {
+    $("#usub").disabled = false;
+  }
 };
 
 $("#wd").onclick = async () => {

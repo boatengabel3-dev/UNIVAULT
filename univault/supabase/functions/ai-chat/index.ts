@@ -26,13 +26,26 @@ Deno.serve(async (req) => {
     } = token ? await sb.auth.getUser(token) : { data: { user: null } };
     if (!user) return json({ error: "Please sign in first." }, 401);
 
-    const { mode, course, messages = [], count = 5, instructions = "" } = await req.json();
+    const {
+      mode = "chat",
+      course = "",
+      messages = [],
+      count = 5,
+      instructions = "",
+      attachmentContext = "",
+      targetQuestion = "",
+    } = await req.json();
+
+    const cleanAttachment = String(attachmentContext || "").trim().slice(0, 45000);
     const [{ data: p }, { data: adm }] = await Promise.all([
       sb.from("profiles").select("*").eq("id", user.id).single(),
       sb.from("admins").select("user_id").eq("user_id", user.id).maybeSingle(),
     ]);
     const premium = p?.premium_until && new Date(p.premium_until) > new Date();
-    if (!premium && !adm) return json({ error: "Premium required. Upgrade to continue." }, 402);
+    const hasUploadedSource = Boolean(cleanAttachment) && (mode === "chat" || mode === "explain");
+    if (!premium && !adm && !hasUploadedSource) {
+      return json({ error: "Premium required. Upgrade to continue." }, 402);
+    }
 
     const apiKey = Deno.env.get("GEMINI_API_KEY");
     if (!apiKey) {
@@ -43,7 +56,7 @@ Deno.serve(async (req) => {
     }
 
     let qs: any[] = [];
-    if (course) {
+    if (course && (premium || adm)) {
       const r = await sb
         .from("questions")
         .select("year,semester,question_content(content)")
@@ -59,11 +72,15 @@ Deno.serve(async (req) => {
       .join("\n\n")
       .slice(0, 40000);
 
-    let systemInstruction = `You are a KNUST exam tutor. Past questions for ${course || "the course"}:\n\n${bank || "(none on file)"}\n\n`;
+    const attachedBlock = cleanAttachment
+      ? `\n\nUser-uploaded study material / transcript:\n${cleanAttachment}\n`
+      : "";
+
+    let systemInstruction = `You are a KNUST exam tutor.${course ? ` Selected course: ${course}.` : ""}${bank ? `\nPast questions on file:\n\n${bank}` : ""}${attachedBlock}\n`;
     const ai = new GoogleGenAI({ apiKey });
 
     if (mode === "quiz") {
-      systemInstruction += `Write ${count} multiple-choice questions in the style of these past questions. Extra instructions: ${instructions || "none"}.`;
+      systemInstruction += `Write ${count} multiple-choice questions in the style of these materials. Extra instructions: ${instructions || "none"}.`;
       const response = await ai.models.generateContent({
         model: "gemini-4-hydrogen",
         contents: `Generate ${count} multiple-choice questions.`,
@@ -88,7 +105,21 @@ Deno.serve(async (req) => {
       return json({ text: (response.text ?? "[]").trim() });
     }
 
-    systemInstruction += `Solve questions step by step with clear working. When asked to predict, analyse repeated topics, question formats, mark weighting and lecturer habits across years, and say which topics are most likely; label predictions as estimates, never guarantees.`;
+    if (mode === "explain") {
+      systemInstruction +=
+        "Provide a thorough, detailed academic explanation. Structure your answer clearly with: (1) Core Concept & Definitions, (2) Step-by-Step Solution / Working with clear formulas and units, (3) Why each step works, and (4) Examiner Tips & Common Mistakes to avoid.";
+      const prompt = targetQuestion
+        ? `Give a detailed explanation for this specific question or topic:\n\n${String(targetQuestion)}`
+        : "Provide a detailed, step-by-step explanation covering the key questions and concepts in the provided material.";
+      const response = await ai.models.generateContent({
+        model: "gemini-4-hydrogen",
+        contents: prompt,
+        config: { systemInstruction },
+      });
+      return json({ text: response.text ?? "" });
+    }
+
+    systemInstruction += `Solve questions step by step with clear working, and provide deep explanations whenever asked about a specific question or uploaded document/recording. When asked to predict, analyse repeated topics, question formats, mark weighting and lecturer habits across years, and say which topics are most likely; label predictions as estimates, never guarantees.`;
 
     const contents = (Array.isArray(messages) ? messages : [])
       .filter((m: any) => m && typeof m.content === "string" && m.content.trim())
@@ -108,5 +139,3 @@ Deno.serve(async (req) => {
     return json({ error: err?.message || "Unexpected Edge Function error" }, 500);
   }
 });
-
-
