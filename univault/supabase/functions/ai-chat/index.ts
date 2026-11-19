@@ -27,9 +27,12 @@ Deno.serve(async (req) => {
     if (!user) return json({ error: "Please sign in first." }, 401);
 
     const { mode, course, messages = [], count = 5, instructions = "" } = await req.json();
-    const { data: p } = await sb.from("profiles").select("*").eq("id", user.id).single();
+    const [{ data: p }, { data: adm }] = await Promise.all([
+      sb.from("profiles").select("*").eq("id", user.id).single(),
+      sb.from("admins").select("user_id").eq("user_id", user.id).maybeSingle(),
+    ]);
     const premium = p?.premium_until && new Date(p.premium_until) > new Date();
-    if (!premium) return json({ error: "Premium required. Upgrade to continue." }, 402);
+    if (!premium && !adm) return json({ error: "Premium required. Upgrade to continue." }, 402);
 
     const apiKey = Deno.env.get("GEMINI_API_KEY");
     if (!apiKey) {

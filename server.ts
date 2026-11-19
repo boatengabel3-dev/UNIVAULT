@@ -51,19 +51,32 @@ app.post('/api/ai-chat', async (req, res) => {
       return;
     }
 
-    const profRes = await fetch(
-      `${supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(user.id)}&select=premium_until`,
-      {
-        headers: {
-          apikey: supabaseAnonKey,
-          Authorization: `Bearer ${token}`,
-        },
-      }
-    );
+    const [profRes, admRes] = await Promise.all([
+      fetch(
+        `${supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(user.id)}&select=premium_until`,
+        {
+          headers: {
+            apikey: supabaseAnonKey,
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      ),
+      fetch(
+        `${supabaseUrl}/rest/v1/admins?user_id=eq.${encodeURIComponent(user.id)}&select=user_id`,
+        {
+          headers: {
+            apikey: supabaseAnonKey,
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      ),
+    ]);
     const profRows = profRes.ok ? ((await profRes.json()) as Array<{ premium_until?: string | null }>) : [];
+    const admRows = admRes.ok ? ((await admRes.json()) as Array<{ user_id?: string }>) : [];
     const premiumUntil = profRows[0]?.premium_until;
+    const isAdmin = admRows.length > 0;
     const isPremium = Boolean(premiumUntil && new Date(premiumUntil) > new Date());
-    if (!isPremium) {
+    if (!isPremium && !isAdmin) {
       res.status(402).json({ error: 'Premium required. Upgrade to continue.' });
       return;
     }

@@ -289,7 +289,7 @@ async function ai(body) {
     if (jsonErr?.error) m = jsonErr.error;
   } catch {}
 
-  if (/Failed to send a request to the Edge Function/i.test(m)) {
+  if (!/sign in|premium/i.test(m)) {
     try {
       const {
         data: { session },
@@ -318,8 +318,10 @@ async function ai(body) {
         throw fallbackErr;
       }
     }
-    m =
-      "Could not reach the ai-chat Edge Function. Deploy it in Supabase (supabase functions deploy ai-chat) and set GEMINI_API_KEY in Edge Function secrets.";
+    if (/Failed to send a request to the Edge Function/i.test(m)) {
+      m =
+        "Could not reach the ai-chat Edge Function or /api/ai-chat. Check SUPABASE_URL, SUPABASE_ANON_KEY, and GEMINI_API_KEY.";
+    }
   }
 
   if (/premium/i.test(m)) show("pricing");
@@ -339,21 +341,31 @@ async function ask(text) {
   bub(text, "u");
   hist.push({ role: "user", content: text });
   const w = bub("Thinking...", "a");
+  if ($("#send")) $("#send").disabled = true;
   try {
     const r = await ai({ mode: "chat", course: $("#chatCourse").value, messages: hist });
-    w.textContent = r;
+    w.textContent = r || "No response returned.";
     hist.push({ role: "assistant", content: r });
   } catch (e) {
     w.textContent = e.message;
     hist.pop();
+  } finally {
+    if ($("#send")) $("#send").disabled = false;
   }
 }
 
 $("#send").onclick = () => {
   const t = $("#msg").value.trim();
-  if (t) {
+  if (t && !$("#send").disabled) {
     $("#msg").value = "";
     ask(t);
+  }
+};
+
+$("#msg").onkeydown = (e) => {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    $("#send").click();
   }
 };
 

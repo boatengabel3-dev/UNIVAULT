@@ -9,6 +9,6 @@
     "isolatedModules": true,
     "noEmit": true
   },
-  "include": ["server.ts"],
+  "include": ["server.ts", "api/**/*.ts"],
   "exclude": ["dist", "node_modules", "univault"]
 }
