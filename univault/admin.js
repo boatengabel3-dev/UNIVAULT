@@ -4,10 +4,32 @@ let allQuestions = [];
 let ovStatusFilter = "all";
 
 function showAdminTab(tab) {
-  document.querySelectorAll("main>section").forEach((s) => (s.hidden = s.id !== "av-" + tab));
-  document
-    .querySelectorAll("header nav button")
-    .forEach((b) => b.classList.toggle("on", b.dataset.av === tab));
+  const target = document.getElementById("av-" + tab);
+  if (!target) return;
+  const activeBtn = document.querySelector(`header nav button[data-av="${tab}"]`);
+  const label = activeBtn ? `Opening ${activeBtn.textContent}...` : "Loading view...";
+  const alreadyVisible = !target.hidden;
+
+  const apply = () => {
+    document.querySelectorAll("main>section").forEach((s) => {
+      const match = s.id === "av-" + tab;
+      s.hidden = !match;
+      s.classList.remove("uv-view-enter");
+      if (match) {
+        void s.offsetWidth;
+        s.classList.add("uv-view-enter");
+      }
+    });
+    document
+      .querySelectorAll("header nav button")
+      .forEach((b) => b.classList.toggle("on", b.dataset.av === tab));
+  };
+
+  if (alreadyVisible || typeof uvTransition === "undefined") {
+    apply();
+  } else {
+    uvTransition.tab(apply, label);
+  }
 }
 
 document.querySelectorAll("header nav button").forEach((b) => {
@@ -16,23 +38,31 @@ document.querySelectorAll("header nav button").forEach((b) => {
 
 $("#aout").onclick = async () => {
   await sb.auth.signOut();
-  location.href = "index.html";
+  if (typeof uvTransition !== "undefined") {
+    uvTransition.go("index.html", "Signing out...");
+  } else {
+    location.href = "index.html";
+  }
 };
 
 (async () => {
-  const {
-    data: { session },
-  } = await sb.auth.getSession();
-  if (!session) return location.replace("index.html");
-  currentSession = session;
-  const { data: a } = await sb
-    .from("admins")
-    .select("user_id")
-    .eq("user_id", session.user.id)
-    .maybeSingle();
-  if (!a) return location.replace("app.html");
-  document.body.hidden = false;
-  await load();
+  try {
+    const {
+      data: { session },
+    } = await sb.auth.getSession();
+    if (!session) return location.replace("index.html");
+    currentSession = session;
+    const { data: a } = await sb
+      .from("admins")
+      .select("user_id")
+      .eq("user_id", session.user.id)
+      .maybeSingle();
+    if (!a) return location.replace("app.html");
+    document.body.hidden = false;
+    await load();
+  } finally {
+    window.dispatchEvent(new CustomEvent("uv:rendered"));
+  }
 })();
 
 function renderQuestionsOverview() {
@@ -74,7 +104,7 @@ $("#ovFilter").onclick = (e) => {
 };
 
 async function load() {
-  const [qRes, pRes, profRes, payRes] = await Promise.all([
+  const [qRes, pRes, profRes, payRes, testRes] = await Promise.all([
     sb
       .from("questions")
       .select("*,question_content(content)")
@@ -82,12 +112,14 @@ async function load() {
     sb.from("payouts").select("*").order("created_at", { ascending: false }),
     sb.from("profiles").select("id,full_name,premium_until,balance"),
     sb.from("payments").select("reference,amount,created_at").order("created_at", { ascending: false }),
+    sb.from("testimonials").select("*").order("created_at", { ascending: false }),
   ]);
 
   allQuestions = qRes.data || [];
   const payouts = pRes.data || [];
   const profiles = profRes.data;
   const payments = payRes.data;
+  const testimonials = testRes.data;
 
   const pendingQ = allQuestions.filter((x) => x.status === "pending");
   const approvedQ = allQuestions.filter((x) => x.status === "approved");
@@ -165,6 +197,23 @@ async function load() {
           `<article class="card"><small>${esc(x.department)} · ${x.year} S${x.semester || "-"}</small><h3>${esc(x.course_code)}<span>${esc(x.course_title)}</span></h3>${x.description ? `<p style="color:var(--mut);font-size:.86rem;margin-top:6px">${esc(x.description)}</p>` : ""}<pre>${esc(x.question_content?.content)}</pre><div class="chips"><button data-a="approve_question" data-id="${x.id}">Approve (+GH₵3)</button><button class="ghost" data-a="reject_question" data-id="${x.id}">Reject</button></div></article>`
       )
       .join("") || "<p style='color:var(--mut)'>No pending student uploads right now.</p>";
+
+  if ($("#pendTestimonials")) {
+    if (!Array.isArray(testimonials)) {
+      $("#pendTestimonials").innerHTML =
+        "<p style='color:var(--mut)'>Run the testimonials SQL in schema.sql to enable moderation.</p>";
+    } else if (testimonials.length === 0) {
+      $("#pendTestimonials").innerHTML =
+        "<p style='color:var(--mut)'>No contributor testimonials submitted yet.</p>";
+    } else {
+      $("#pendTestimonials").innerHTML = testimonials
+        .map(
+          (x) =>
+            `<article class="card"><small>${x.approved ? "Published" : "Pending review"} · ${x.created_at ? new Date(x.created_at).toLocaleDateString() : ""}</small><h3>${esc(x.author_name)}<span>${esc(x.role)}</span></h3><p style="color:var(--ink);font-size:.9rem;margin-top:10px">“${esc(x.quote)}”</p><div class="chips">${x.approved ? `<button class="ghost" data-tact="hide" data-tid="${x.id}">Unpublish</button>` : `<button data-tact="approve" data-tid="${x.id}">Approve &amp; Publish</button>`}<button class="ghost" data-tact="delete" data-tid="${x.id}">Delete</button></div></article>`
+        )
+        .join("");
+    }
+  }
 
   // Pending payouts cards
   $("#po").innerHTML =
@@ -256,6 +305,16 @@ document.onclick = async (e) => {
       body: { id: t.dataset.pay },
     });
     r = { error };
+  } else if (t.dataset.tact && t.dataset.tid) {
+    t.disabled = true;
+    if (t.dataset.tact === "delete") {
+      r = await sb.from("testimonials").delete().eq("id", t.dataset.tid);
+    } else {
+      r = await sb
+        .from("testimonials")
+        .update({ approved: t.dataset.tact === "approve" })
+        .eq("id", t.dataset.tid);
+    }
   } else {
     return;
   }

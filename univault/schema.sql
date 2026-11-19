@@ -39,5 +39,13 @@ declare b int; begin select balance into b from public.profiles where id=auth.ui
 if coalesce(b,0)<1000 then raise exception 'Minimum payout is GH₵10'; end if;
 update public.profiles set balance=0 where id=auth.uid();
 insert into public.payouts(user_id,amount,account_name,momo,network) values(auth.uid(),b,nm,momo,net); end $$;
+-- Student contributor testimonials
+create table if not exists testimonials(id uuid default gen_random_uuid() primary key,user_id uuid references auth.users on delete set null default auth.uid(),author_name text not null,role text not null,quote text not null,approved boolean default false,created_at timestamptz default now());
+alter table testimonials enable row level security;
+create policy "testimonials read" on testimonials for select using(approved=true or user_id=auth.uid() or is_admin());
+create policy "testimonials insert" on testimonials for insert with check(char_length(trim(author_name))>=2 and char_length(trim(role))>=2 and char_length(trim(quote)) between 15 and 600 and (coalesce(approved,false)=false or is_admin()));
+create policy "testimonials admin update" on testimonials for update using(is_admin());
+create policy "testimonials admin delete" on testimonials for delete using(is_admin());
 -- MAKE AN ADMIN (run in SQL editor with the user's id from Authentication > Users):
 -- insert into admins(user_id) values('PASTE-USER-UUID') on conflict (user_id) do nothing;
+

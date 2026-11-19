@@ -1,16 +1,23 @@
 let mode = "up";
 
 async function redirectAfterAuth(userId) {
-  if (!userId) return location.replace("app.html");
+  const go = (dest, label) => {
+    if (typeof uvTransition !== "undefined") {
+      uvTransition.go(dest, label);
+    } else {
+      location.replace(dest);
+    }
+  };
+  if (!userId) return go("app.html", "Opening UniVault...");
   try {
     const { data: adm } = await sb
       .from("admins")
       .select("user_id")
       .eq("user_id", userId)
       .maybeSingle();
-    location.replace(adm ? "admin.html" : "app.html");
+    go(adm ? "admin.html" : "app.html", adm ? "Opening Admin Console..." : "Opening UniVault...");
   } catch {
-    location.replace("app.html");
+    go("app.html", "Opening UniVault...");
   }
 }
 

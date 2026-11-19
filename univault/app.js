@@ -8,13 +8,35 @@ function setMenuOpen(open) {
 }
 
 function show(v) {
-  document.querySelectorAll("main>section").forEach((s) => (s.hidden = s.id !== v));
-  document.querySelectorAll("nav button").forEach((b) => {
-    const active = b.dataset.v === v;
-    b.classList.toggle("on", active);
-    if (active && $("#activeViewLabel")) $("#activeViewLabel").textContent = b.textContent;
-  });
+  const targetSection = document.getElementById(v);
+  if (!targetSection) return;
+  const activeBtn = document.querySelector(`nav button[data-v="${v}"]`);
+  const label = activeBtn ? `Opening ${activeBtn.textContent}...` : "Loading view...";
+  const alreadyVisible = !targetSection.hidden;
+
+  const apply = () => {
+    document.querySelectorAll("main>section").forEach((s) => {
+      const match = s.id === v;
+      s.hidden = !match;
+      s.classList.remove("uv-view-enter");
+      if (match) {
+        void s.offsetWidth;
+        s.classList.add("uv-view-enter");
+      }
+    });
+    document.querySelectorAll("nav button").forEach((b) => {
+      const active = b.dataset.v === v;
+      b.classList.toggle("on", active);
+      if (active && $("#activeViewLabel")) $("#activeViewLabel").textContent = b.textContent;
+    });
+  };
+
   setMenuOpen(false);
+  if (alreadyVisible || typeof uvTransition === "undefined") {
+    apply();
+  } else {
+    uvTransition.tab(apply, label);
+  }
 }
 
 document.querySelectorAll("nav button").forEach((b) => (b.onclick = () => show(b.dataset.v)));
@@ -45,18 +67,26 @@ document.addEventListener("keydown", (e) => {
 });
 
 (async () => {
-  const {
-    data: { session },
-  } = await sb.auth.getSession();
-  if (!session) return location.replace("signup.html");
-  user = session.user;
-  await refresh();
-  await load();
+  try {
+    const {
+      data: { session },
+    } = await sb.auth.getSession();
+    if (!session) return location.replace("signup.html");
+    user = session.user;
+    await refresh();
+    await load();
+  } finally {
+    window.dispatchEvent(new CustomEvent("uv:rendered"));
+  }
 })();
 
 $("#out").onclick = async () => {
   await sb.auth.signOut();
-  location.href = "index.html";
+  if (typeof uvTransition !== "undefined") {
+    uvTransition.go("index.html", "Signing out...");
+  } else {
+    location.href = "index.html";
+  }
 };
 
 function renderDashboard() {
@@ -130,13 +160,6 @@ async function refresh() {
     ? "Premium until " + new Date(P.premium_until).toLocaleDateString()
     : "Free";
   $("#bal").textContent = fmt(P.balance || 0);
-
-  const { data: adm } = await sb
-    .from("admins")
-    .select("user_id")
-    .eq("user_id", user.id)
-    .maybeSingle();
-  if ($("#adminLink")) $("#adminLink").hidden = !adm;
 
   const { data: po } = await sb
     .from("payouts")
@@ -253,16 +276,54 @@ $("#solve").onclick = () => {
 };
 
 async function ai(body) {
-  const { data, error } = await sb.functions.invoke("ai-chat", { body });
-  if (error) {
-    let m = error.message;
-    try {
-      m = (await error.context.json()).error || m;
-    } catch {}
-    if (/premium/i.test(m)) show("pricing");
-    throw new Error(m);
+  if (!isValidSupabaseUrl) {
+    throw new Error("Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.");
   }
-  return data.text;
+
+  const { data, error } = await sb.functions.invoke("ai-chat", { body });
+  if (!error) return data.text;
+
+  let m = error.message || "Edge Function request failed.";
+  try {
+    const jsonErr = await error.context?.json?.();
+    if (jsonErr?.error) m = jsonErr.error;
+  } catch {}
+
+  if (/Failed to send a request to the Edge Function/i.test(m)) {
+    try {
+      const {
+        data: { session },
+      } = await sb.auth.getSession();
+      const apiRes = await fetch("/api/ai-chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token
+            ? { Authorization: `Bearer ${session.access_token}` }
+            : {}),
+        },
+        body: JSON.stringify(body),
+      });
+      const contentType = apiRes.headers.get("content-type") || "";
+      if (contentType.includes("application/json")) {
+        const apiData = await apiRes.json();
+        if (apiRes.ok) return apiData.text;
+        m = apiData.error || m;
+        if (/premium/i.test(m)) show("pricing");
+        throw new Error(m);
+      }
+    } catch (fallbackErr) {
+      if (fallbackErr instanceof Error && fallbackErr.message !== m) {
+        if (/premium/i.test(fallbackErr.message)) show("pricing");
+        throw fallbackErr;
+      }
+    }
+    m =
+      "Could not reach the ai-chat Edge Function. Deploy it in Supabase (supabase functions deploy ai-chat) and set GEMINI_API_KEY in Edge Function secrets.";
+  }
+
+  if (/premium/i.test(m)) show("pricing");
+  throw new Error(m);
 }
 
 function bub(t, c) {

@@ -26,12 +26,15 @@
 </section>
 
 <section id="testimonials" class="testimonials" aria-labelledby="testimonials-heading">
+<div class="sec-head-row">
 <div class="sec-head">
 <p class="sec-kicker">Academic Community</p>
 <h2 id="testimonials-heading">Trusted by student contributors and scholars</h2>
 <p>Verified reviews from KNUST undergraduates, teaching assistants, and archive contributors across faculties.</p>
 </div>
-<div class="tgrid">
+<button type="button" id="openStoryModal" class="cta g story-btn">Submit your story</button>
+</div>
+<div id="tgrid" class="tgrid">
 <article class="card tcard" tabindex="0">
 <blockquote class="tquote">“I transcribed and submitted fourteen semester papers from our department drive before mid-sems. Review took less than a day, and every GH₵3 credit settled cleanly to my Mobile Money.”</blockquote>
 <footer class="tmeta">
@@ -56,12 +59,27 @@
 </div>
 </section>
 
+<dialog id="storyDialog" class="story-dialog" aria-labelledby="storyTitle">
+<h3 id="storyTitle">Share your UniVault story</h3>
+<p class="story-sub">Tell fellow KNUST contributors and students how UniVault has helped your uploads or exam prep.</p>
+<form id="storyForm" class="story-form">
+<label>Full name<input id="storyName" type="text" required minlength="2" maxlength="80" placeholder="e.g. Ama Serwaa"></label>
+<label>Role &amp; programme<input id="storyRole" type="text" required minlength="2" maxlength="100" placeholder="e.g. Student Contributor · BSc. Civil Engineering"></label>
+<label>Your story<textarea id="storyQuote" required minlength="15" maxlength="500" placeholder="Share your experience contributing past papers or revising on UniVault..."></textarea></label>
+<p id="storyMsg" class="story-msg" role="status"></p>
+<div class="story-actions">
+<button type="button" id="closeStoryModal" class="ghost">Cancel</button>
+<button type="submit" id="storySubmit">Submit testimonial</button>
+</div>
+</form>
+</dialog>
+
 <footer class="site-foot">
 <span>UniVault · Academic Past-Question Archive for KNUST</span>
 <span>Verified uploads · GH₵30 / month</span>
 </footer>
 </main>
-<script src="config.js"></script><script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" crossorigin="anonymous"></script><script src="config.js"></script><script>
 (()=>{
   const depEl=$("#home-dep"),qEl=$("#home-search"),clrEl=$("#home-clear"),stEl=$("#home-status"),listEl=$("#home-list");
   let courses=[];
@@ -100,6 +118,74 @@
         depEl.innerHTML='<option value="">All departments</option>'+(d.departments||[]).map(dep=>`<option value="${esc(dep)}">${esc(dep)}</option>`).join("");
         renderHome();
       }).catch(()=>{});
+
+    sb.from("testimonials")
+      .select("author_name,role,quote")
+      .eq("approved",true)
+      .order("created_at",{ascending:false})
+      .limit(6)
+      .then(({data})=>{
+        if(!Array.isArray(data)||data.length===0)return;
+        const grid=$("#tgrid");
+        if(!grid)return;
+        const extra=data.map(item=>`<article class="card tcard" tabindex="0"><blockquote class="tquote">“${esc(item.quote)}”</blockquote><footer class="tmeta"><cite class="tauthor">${esc(item.author_name)}</cite><span class="trole">${esc(item.role)}</span></footer></article>`).join("");
+        grid.insertAdjacentHTML("beforeend",extra);
+      }).catch(()=>{});
+  }
+
+  const dlg=$("#storyDialog"),openBtn=$("#openStoryModal"),closeBtn=$("#closeStoryModal"),form=$("#storyForm"),msg=$("#storyMsg"),subBtn=$("#storySubmit");
+  if(openBtn&&dlg){
+    openBtn.onclick=async()=>{
+      if(msg)msg.textContent="";
+      try{
+        const {data}=await sb.auth.getSession();
+        const fullName=data?.session?.user?.user_metadata?.full_name;
+        if(fullName&&$("#storyName")&&!$("#storyName").value)$("#storyName").value=fullName;
+      }catch{}
+      dlg.showModal();
+    };
+  }
+  if(closeBtn&&dlg){
+    closeBtn.onclick=()=>dlg.close();
+    dlg.addEventListener("click",(e)=>{if(e.target===dlg)dlg.close();});
+  }
+  if(form){
+    form.onsubmit=async(e)=>{
+      e.preventDefault();
+      if(!isValidSupabaseUrl){
+        msg.style.color="#fca5a5";
+        msg.textContent="Supabase is not configured yet.";
+        return;
+      }
+      const author_name=$("#storyName").value.trim();
+      const role=$("#storyRole").value.trim();
+      const quote=$("#storyQuote").value.trim();
+      if(author_name.length<2||role.length<2||quote.length<15){
+        msg.style.color="#fca5a5";
+        msg.textContent="Please enter your name, role, and at least 15 characters for your story.";
+        return;
+      }
+      subBtn.disabled=true;
+      msg.style.color="var(--c)";
+      msg.textContent="Submitting your testimonial...";
+      try{
+        const {data:sess}=await sb.auth.getSession();
+        const uid=sess?.session?.user?.id;
+        const row={author_name,role,quote};
+        if(uid)row.user_id=uid;
+        const {error}=await sb.from("testimonials").insert(row);
+        if(error)throw error;
+        msg.style.color="#6ee7b7";
+        msg.textContent="Thank you! Your story has been submitted to UniVault.";
+        form.reset();
+        setTimeout(()=>{if(dlg.open)dlg.close();},1400);
+      }catch(err){
+        msg.style.color="#fca5a5";
+        msg.textContent=err?.message||"Could not submit your story right now.";
+      }finally{
+        subBtn.disabled=false;
+      }
+    };
   }
 })();
 </script></body></html>

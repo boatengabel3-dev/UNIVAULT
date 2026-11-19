@@ -1,2 +1,11 @@
 [functions.public-stats]
 verify_jwt = false
+
+[functions.ai-chat]
+verify_jwt = false
+
+[functions.paystack-verify]
+verify_jwt = false
+
+[functions.admin-payout]
+verify_jwt = false

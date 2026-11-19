@@ -21,6 +21,9 @@
 .chip-link{display:inline-block;padding:5px 10px;border-radius:8px;background:var(--g);border:1px solid var(--b);color:var(--ink);text-decoration:none;font-size:.84rem;font-weight:500;transition:border-color .2s ease,background .2s ease}
 .chip-link:hover{border-color:var(--c);background:rgba(29,78,216,.24)}
 .testimonials{margin-top:64px;padding-top:44px;border-top:1px solid var(--b)}
+.sec-head-row{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between;margin-bottom:26px}
+.sec-head-row .sec-head{margin-bottom:0}
+.story-btn{padding:9px 16px;font-size:.88rem;margin:0;white-space:nowrap;flex-shrink:0}
 .sec-head{max-width:620px;margin-bottom:26px}
 .sec-kicker{font-size:.82rem;font-weight:600;color:var(--c);letter-spacing:.03em;margin-bottom:6px}
 .sec-head h2{font-size:clamp(1.45rem,3vw,2rem);font-weight:700;color:#fff;line-height:1.2;margin-bottom:8px}
@@ -31,7 +34,16 @@
 .tmeta{border-top:1px solid rgba(255,255,255,.10);padding-top:14px}
 .tauthor{display:block;font-style:normal;font-weight:600;font-size:.95rem;color:#fff}
 .trole{display:block;font-size:.82rem;color:var(--mut);margin-top:2px}
+.story-dialog{max-width:min(480px,92vw);width:100%;padding:24px}
+.story-dialog h3{font-size:1.25rem;color:#fff;margin-bottom:6px}
+.story-sub{color:var(--mut);font-size:.9rem;margin-bottom:14px}
+.story-form{display:grid;gap:12px}
+.story-form label{display:grid;gap:6px;font-size:.86rem;color:#dbe4f3;font-weight:500}
+.story-form input,.story-form textarea{width:100%;background:rgba(8,15,28,.62);margin:0}
+.story-msg{min-height:1.2em;font-size:.88rem;color:var(--c)}
+.story-actions{display:flex;flex-wrap:wrap;gap:10px;justify-content:flex-end;margin-top:4px}
 .site-foot{margin-top:64px;padding:24px 0 8px;border-top:1px solid var(--b);display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:center;font-size:.84rem;color:var(--mut)}
 @media (prefers-reduced-motion:reduce){.feat .card,.feat .card::before,.feat .card h3,.tcard,.tcard::before,.hero a,.cta{transition:none}.feat .card:hover,.feat .card:focus-visible,.tcard:hover,.tcard:focus-visible{transform:none}}
 .wrap{min-height:100vh;display:grid;place-items:center;perspective:1000px;padding:20px}.tilt{width:min(420px,94vw);transition:transform .15s;transform-style:preserve-3d;display:grid;gap:12px;padding:28px;box-shadow:0 40px 80px rgba(0,0,0,.45),inset 0 1px 0 rgba(255,255,255,.15)}
 .tilt input{width:100%}.tilt .crest{width:54px;margin:auto;animation-duration:8s}.tilt .crest.wordmark{width:160px;max-width:75%;height:auto}.tilt a{color:var(--c);text-decoration:none;font-size:.85rem}#msg{color:#fca5a5;min-height:1.2em;font-size:.9rem}
+
