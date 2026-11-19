@@ -75,9 +75,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const fileName = String(body.fileName || 'upload');
     const mimeType = String(body.mimeType || '');
     const dataBase64 = String(body.dataBase64 || '');
+    const preprocessedText = String(body.preprocessedText || '');
+    const ocrUsed = Boolean(body.ocrUsed);
 
-    if (!dataBase64) {
-      res.status(400).json({ error: 'No file data was provided.' });
+    if (!dataBase64 && !preprocessedText.trim()) {
+      res.status(400).json({ error: 'No file data or extracted text was provided.' });
       return;
     }
 
@@ -86,6 +88,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       fileName,
       mimeType,
       dataBase64,
+      preprocessedText,
+      ocrUsed,
     });
 
     const dup = await checkDuplicateQuestion({

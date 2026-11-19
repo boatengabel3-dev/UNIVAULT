@@ -1227,6 +1227,125 @@ pre {
   line-height: 1.45;
 }
 
+.upload-preview {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: 10px;
+  background: rgba(15, 29, 52, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+}
+
+.upload-preview[hidden] {
+  display: none;
+}
+
+.up-thumb {
+  width: 96px;
+  height: 112px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(9, 17, 30, 0.9);
+  display: grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+
+.up-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.up-thumb-badge {
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--c);
+}
+
+.up-snippet {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.up-snippet-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.up-snippet-head strong {
+  color: #fff;
+  font-size: 0.94rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.up-snippet-head small {
+  color: var(--c);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.up-snippet-text {
+  color: #dbe4f3;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
+}
+
+.up-snippet-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 2px;
+}
+
+.up-snippet-hint {
+  color: var(--mut);
+  font-size: 0.8rem;
+}
+
+.up-clear-btn {
+  padding: 5px 10px;
+  font-size: 0.8rem;
+}
+
+@media (max-width: 540px) {
+  .upload-preview {
+    grid-template-columns: 1fr;
+  }
+  .up-thumb {
+    width: 100%;
+    height: 130px;
+  }
+}
+
+.ai-quota {
+  display: block;
+  color: var(--c);
+  font-size: 0.88rem;
+  font-weight: 500;
+  margin: 0 0 8px;
+}
+
 .attach-bar {
   display: flex;
   flex-wrap: wrap;
@@ -1298,6 +1417,52 @@ pre {
   color: #a7f3d0;
 }
 
+.drawer-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chat-composer {
+  align-items: center;
+}
+
+.mic-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.mic-btn.is-recording {
+  background: rgba(185, 28, 28, 0.34);
+  border-color: rgba(248, 113, 113, 0.78);
+  color: #fecaca;
+  animation: micPulse 1.3s ease-in-out infinite;
+}
+
+.mic-status {
+  display: block;
+  margin-top: -4px;
+  font-size: 0.86rem;
+  color: var(--c);
+  line-height: 1.45;
+}
+
+.mic-status.is-err {
+  color: #fca5a5;
+}
+
+.mic-status[hidden] {
+  display: none;
+}
+
+@keyframes micPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(248, 113, 113, 0.35); }
+  50% { box-shadow: 0 0 0 6px rgba(248, 113, 113, 0); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .app-bg::before,
   .aura i,
@@ -1305,7 +1470,8 @@ pre {
   .uv-crest-ring img,
   .uv-view-enter,
   dialog[open],
-  .nav-drawer {
+  .nav-drawer,
+  .mic-btn.is-recording {
     animation: none;
   }
 

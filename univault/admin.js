@@ -2,6 +2,9 @@
 let currentSession = null;
 let allQuestions = [];
 let ovStatusFilter = "all";
+let adminDupTimer = null;
+let adminAttachment = null;
+let lastAdminUploadBody = "";
 
 function showAdminTab(tab) {
   const target = document.getElementById("av-" + tab);
@@ -104,7 +107,7 @@ $("#ovFilter").onclick = (e) => {
 };
 
 async function load() {
-  const [qRes, pRes, profRes, payRes, testRes] = await Promise.all([
+  const [qRes, pRes, profRes, payRes, testRes, settingsRes] = await Promise.all([
     sb
       .from("questions")
       .select("*,question_content(content)")
@@ -113,7 +116,24 @@ async function load() {
     sb.from("profiles").select("id,full_name,premium_until,balance"),
     sb.from("payments").select("reference,amount,created_at").order("created_at", { ascending: false }),
     sb.from("testimonials").select("*").order("created_at", { ascending: false }),
+    sb.from("app_settings").select("price_ghs,free_ai_limit").eq("id", 1).maybeSingle(),
   ]);
+
+  if (settingsRes?.data) {
+    if ($("#setPriceGhs")) {
+      $("#setPriceGhs").value = String(Number(settingsRes.data.price_ghs) || 30);
+    }
+    if ($("#setFreeAiLimit")) {
+      $("#setFreeAiLimit").value = String(
+        settingsRes.data.free_ai_limit !== null && settingsRes.data.free_ai_limit !== undefined
+          ? Number(settingsRes.data.free_ai_limit)
+          : 5
+      );
+    }
+  } else if (settingsRes?.error && $("#settingsMsg")) {
+    $("#settingsMsg").style.color = "#fcd34d";
+    $("#settingsMsg").textContent = "Run the app_settings SQL in schema.sql to persist changes.";
+  }
 
   allQuestions = qRes.data || [];
   const payouts = pRes.data || [];
@@ -236,26 +256,115 @@ async function load() {
     `<div class="row-item"><div class="row-main"><strong>No completed payouts yet</strong></div></div>`;
 }
 
-$("#adminUploadForm").onsubmit = async (e) => {
-  e.preventDefault();
-  const msgEl = $("#amsg");
-  msgEl.style.color = "var(--c)";
-  msgEl.textContent = "Publishing...";
+if ($("#settingsForm")) {
+  $("#settingsForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const msgEl = $("#settingsMsg");
+    const btn = $("#saveSettingsBtn");
+    const priceGhs = Number($("#setPriceGhs").value);
+    const freeAiLimit = Math.floor(Number($("#setFreeAiLimit").value));
 
-  const rawCode = $("#ac").value.trim().toUpperCase().replace(/[-_]+/g, " ").replace(/\s+/g, " ");
-  const compactCode = rawCode.replace(/[^A-Z0-9]/g, "");
-  const codeMatch = compactCode.match(/^([A-Z]+)(\d+[A-Z]*)$/);
-  const normCode = codeMatch ? `${codeMatch[1]} ${codeMatch[2]}` : rawCode;
+    if (!Number.isFinite(priceGhs) || priceGhs < 1) {
+      if (msgEl) {
+        msgEl.style.color = "#fca5a5";
+        msgEl.textContent = "Subscription price must be at least GH₵ 1.";
+      }
+      return;
+    }
+    if (!Number.isFinite(freeAiLimit) || freeAiLimit < 0) {
+      if (msgEl) {
+        msgEl.style.color = "#fca5a5";
+        msgEl.textContent = "Free AI uses must be 0 or greater.";
+      }
+      return;
+    }
 
-  const payload = {
-    d: $("#ad").value.trim().replace(/\s+/g, " "),
-    c: normCode,
-    t: $("#at").value.trim().replace(/\s+/g, " "),
-    y: +$("#ay").value,
-    s: +$("#as").value,
-    body: $("#ab").value.trim(),
-    descr: $("#adescr").value.trim() || null,
+    if (btn) btn.disabled = true;
+    if (msgEl) {
+      msgEl.style.color = "var(--c)";
+      msgEl.textContent = "Saving settings...";
+    }
+    try {
+      const { error } = await sb.from("app_settings").upsert({
+        id: 1,
+        price_ghs: priceGhs,
+        free_ai_limit: freeAiLimit,
+        updated_at: new Date().toISOString(),
+      });
+      if (error) {
+        if (msgEl) {
+          msgEl.style.color = "#fca5a5";
+          msgEl.textContent = /app_settings/i.test(error.message)
+            ? "Run the new app_settings SQL in schema.sql first, then retry."
+            : error.message;
+        }
+        return;
+      }
+      if (msgEl) {
+        msgEl.style.color = "#6ee7b7";
+        msgEl.textContent = `Saved: GH₵${priceGhs}/month & ${freeAiLimit} free AI use${freeAiLimit === 1 ? "" : "s"} before Premium.`;
+      }
+    } finally {
+      if (btn) btn.disabled = false;
+    }
   };
+}
+
+function showAdminDupBanner(result) {
+  const banner = $("#adminDupAlert");
+  if (!banner) return;
+  if (!result || (!result.duplicate && !result.verifiedMessage)) {
+    banner.hidden = true;
+    banner.className = "dup-banner";
+    banner.textContent = "";
+    return;
+  }
+  banner.hidden = false;
+  if (result.duplicate) {
+    banner.className = "dup-banner is-dup";
+    banner.textContent = result.reason || "This past question already exists in UniVault.";
+  } else {
+    banner.className = "dup-banner is-ok";
+    banner.textContent = result.verifiedMessage;
+  }
+}
+
+async function runAdminDupCheck(showClear = false) {
+  if (!currentSession?.access_token) return { duplicate: false };
+  const normCode = window.uvFileTools
+    ? window.uvFileTools.normCourseCode($("#ac").value).canonical
+    : $("#ac").value.trim().toUpperCase();
+  const payload = {
+    department: $("#ad").value.trim(),
+    courseCode: normCode,
+    year: $("#ay").value ? Number($("#ay").value) : null,
+    semester: $("#as").value ? Number($("#as").value) : null,
+    bodyText: $("#ab").value.trim(),
+  };
+
+  // Local instant check against loaded allQuestions first
+  const compact = normCode.replace(/[^A-Z0-9]/g, "");
+  if (compact && payload.year) {
+    const match = allQuestions.find((q) => {
+      if (q.status === "rejected") return false;
+      const qKey = String(q.course_code || "")
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, "");
+      return (
+        qKey === compact &&
+        Number(q.year) === payload.year &&
+        (!payload.semester || !q.semester || Number(q.semester) === payload.semester)
+      );
+    });
+    if (match) {
+      const localDup = {
+        duplicate: true,
+        reason: `Duplicate past question detected: ${match.course_code} (${match.year}${match.semester ? " Sem " + match.semester : ""}) already exists (${match.status}).`,
+      };
+      showAdminDupBanner(localDup);
+      return localDup;
+    }
+  }
 
   try {
     const dupRes = await fetch("/api/check-duplicate", {
@@ -264,23 +373,228 @@ $("#adminUploadForm").onsubmit = async (e) => {
         "Content-Type": "application/json",
         Authorization: `Bearer ${currentSession.access_token}`,
       },
-      body: JSON.stringify({
-        department: payload.d,
-        courseCode: payload.c,
-        year: payload.y,
-        semester: payload.s,
-        bodyText: payload.body,
-      }),
+      body: JSON.stringify(payload),
     });
     if (dupRes.ok) {
       const dup = await dupRes.json();
       if (dup.duplicate) {
-        msgEl.style.color = "#fca5a5";
-        msgEl.textContent = dup.reason || "Duplicate past question already exists.";
-        return;
+        showAdminDupBanner(dup);
+        return dup;
       }
+      if (showClear && (compact || payload.bodyText.length >= 30)) {
+        showAdminDupBanner({
+          duplicate: false,
+          verifiedMessage: `Normalized check passed (${dup.normalizedCode || normCode || "ready"}): no duplicate past question found.`,
+        });
+      } else {
+        showAdminDupBanner(null);
+      }
+      return dup;
     }
   } catch {}
+  if (showClear) showAdminDupBanner(null);
+  return { duplicate: false };
+}
+
+function scheduleAdminDupCheck() {
+  if (adminDupTimer) clearTimeout(adminDupTimer);
+  adminDupTimer = setTimeout(() => runAdminDupCheck(false), 450);
+}
+
+["#ac", "#ay", "#as", "#ab"].forEach((sel) => {
+  const node = $(sel);
+  if (node) {
+    node.addEventListener("input", scheduleAdminDupCheck);
+    node.addEventListener("change", scheduleAdminDupCheck);
+  }
+});
+
+function clearAdminPreview(resetExtractedBody = true) {
+  if ($("#adminUploadFile")) $("#adminUploadFile").value = "";
+  window.uvFileTools?.renderUploadPreview($("#adminUploadPreview"), null);
+  if ($("#adminFileStatus")) {
+    $("#adminFileStatus").textContent =
+      "Client-side PDF & Image OCR + Gemini AI extraction & duplicate normalization check.";
+  }
+  if (resetExtractedBody && lastAdminUploadBody && $("#ab")?.value === lastAdminUploadBody) {
+    $("#ab").value = "";
+  }
+  lastAdminUploadBody = "";
+  adminAttachment = null;
+  if ($("#adminExplainBar")) $("#adminExplainBar").hidden = true;
+  if ($("#adminExplainOut")) $("#adminExplainOut").hidden = true;
+  showAdminDupBanner(null);
+}
+
+if ($("#adminUploadFile")) {
+  $("#adminUploadFile").onchange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const stEl = $("#adminFileStatus");
+    if (stEl) stEl.textContent = `Starting client-side reader for "${file.name}"...`;
+    window.uvFileTools?.renderUploadPreview($("#adminUploadPreview"), null);
+    showAdminDupBanner(null);
+    if ($("#adminExplainOut")) $("#adminExplainOut").hidden = true;
+
+    try {
+      if (!window.uvFileTools?.processFile) {
+        throw new Error("OCR reader script failed to load.");
+      }
+      const data = await window.uvFileTools.processFile(file, (msg) => {
+        if (stEl) stEl.textContent = msg;
+      });
+      adminAttachment = data;
+
+      const formattedBody =
+        data.transcript && data.transcript !== data.extractedText
+          ? `${data.extractedText}\n\n[Transcript]\n${data.transcript}`
+          : data.extractedText || data.transcript || "";
+      if (formattedBody) {
+        $("#ab").value = formattedBody;
+        lastAdminUploadBody = formattedBody;
+      }
+
+      const meta = data.metadata || {};
+      if (meta.department && !$("#ad").value.trim()) $("#ad").value = meta.department;
+      if (meta.course_code && !$("#ac").value.trim()) $("#ac").value = meta.course_code;
+      if (meta.course_title && !$("#at").value.trim()) $("#at").value = meta.course_title;
+      if (meta.year && !$("#ay").value.trim()) $("#ay").value = String(meta.year);
+      if ((meta.semester === 1 || meta.semester === 2) && $("#as")) {
+        $("#as").value = String(meta.semester);
+      }
+      if (meta.description && $("#adescr") && !$("#adescr").value.trim()) {
+        $("#adescr").value = meta.description;
+      }
+
+      window.uvFileTools.renderUploadPreview($("#adminUploadPreview"), data, () =>
+        clearAdminPreview(true)
+      );
+
+      if ($("#adminExplainBar")) {
+        $("#adminExplainBar").hidden = false;
+        $("#adminAttachName").textContent = `${data.fileName} (${data.mediaType === "audio" ? "Audio Transcript" : data.mediaType === "video" ? "Video Transcript & Frames" : data.ocrUsed ? "Client OCR + Document" : "Written Document"})`;
+        $("#adminAttachSummary").textContent =
+          data.summary || "Extracted material ready for review or AI explanation.";
+        const qSel = $("#adminDetectedQ");
+        if (qSel) {
+          const qs = Array.isArray(data.questionsDetected) ? data.questionsDetected : [];
+          if (qs.length > 0) {
+            qSel.hidden = false;
+            qSel.innerHTML =
+              '<option value="">Explain full material / overview</option>' +
+              qs
+                .map(
+                  (q, i) =>
+                    `<option value="${esc(q)}">Q${i + 1}: ${esc(q.slice(0, 75))}${q.length > 75 ? "..." : ""}</option>`
+                )
+                .join("");
+          } else {
+            qSel.hidden = true;
+            qSel.innerHTML = "";
+          }
+        }
+      }
+
+      if (stEl) {
+        stEl.textContent =
+          data.mediaType === "written"
+            ? `${data.ocrUsed ? "Client OCR + Gemini AI extracted" : "Extracted"} "${file.name}". Review preview & fields, then click Publish Question.`
+            : `Transcribed ${data.mediaType} recording "${file.name}". Review preview & click Publish Question.`;
+      }
+
+      const dup = await runAdminDupCheck(true);
+      if (data.duplicateCheck?.duplicate && !dup.duplicate) {
+        showAdminDupBanner(data.duplicateCheck);
+      }
+    } catch (err) {
+      if (stEl) stEl.textContent = err.message || "Could not process uploaded file.";
+    } finally {
+      $("#adminUploadFile").value = "";
+    }
+  };
+}
+
+if ($("#adminExplainBtn")) {
+  $("#adminExplainBtn").onclick = async () => {
+    const out = $("#adminExplainOut");
+    const bodyText = $("#ab").value.trim();
+    const selectedQ = $("#adminDetectedQ")?.value || "";
+    if (!bodyText && !adminAttachment) {
+      showAdminDupBanner({
+        duplicate: true,
+        reason: "Upload a file or paste question text first to generate a detailed AI explanation.",
+      });
+      return;
+    }
+    $("#adminExplainBtn").disabled = true;
+    out.hidden = false;
+    out.textContent = "Generating detailed Gemini AI explanation...";
+    try {
+      const normCode = window.uvFileTools
+        ? window.uvFileTools.normCourseCode($("#ac").value).canonical
+        : $("#ac").value.trim().toUpperCase();
+      const res = await fetch("/api/ai-chat", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${currentSession.access_token}`,
+        },
+        body: JSON.stringify({
+          mode: "explain",
+          course: normCode,
+          targetQuestion:
+            selectedQ ||
+            `Provide a detailed step-by-step explanation of this ${normCode || "course"} material.`,
+          attachmentContext: bodyText,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Could not generate explanation.");
+      out.textContent = data.text || "No explanation returned.";
+    } catch (err) {
+      out.textContent = err.message || "Failed to generate explanation.";
+    } finally {
+      $("#adminExplainBtn").disabled = false;
+    }
+  };
+}
+
+$("#adminUploadForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const msgEl = $("#amsg");
+  msgEl.style.color = "var(--c)";
+  msgEl.textContent = "Checking duplicates & publishing...";
+
+  const normCode = window.uvFileTools
+    ? window.uvFileTools.normCourseCode($("#ac").value).canonical
+    : $("#ac").value.trim().toUpperCase();
+  const normDep = window.uvFileTools
+    ? window.uvFileTools.normSpaces($("#ad").value)
+    : $("#ad").value.trim();
+  const normTitle = window.uvFileTools
+    ? window.uvFileTools.normSpaces($("#at").value)
+    : $("#at").value.trim();
+
+  $("#ad").value = normDep;
+  $("#ac").value = normCode;
+  $("#at").value = normTitle;
+
+  const payload = {
+    d: normDep,
+    c: normCode,
+    t: normTitle,
+    y: +$("#ay").value,
+    s: +$("#as").value,
+    body: $("#ab").value.trim(),
+    descr: $("#adescr").value.trim() || null,
+  };
+
+  const dup = await runAdminDupCheck(false);
+  if (dup.duplicate) {
+    msgEl.style.color = "#fca5a5";
+    msgEl.textContent = dup.reason || "Duplicate past question already exists.";
+    return;
+  }
 
   let { error } = await sb.rpc("admin_publish_question", payload);
 
@@ -315,9 +629,11 @@ $("#adminUploadForm").onsubmit = async (e) => {
   if (error) {
     msgEl.style.color = "#fca5a5";
     msgEl.textContent = error.message;
+    showAdminDupBanner({ duplicate: true, reason: error.message });
     return;
   }
 
+  clearAdminPreview(false);
   msgEl.style.color = "#6ee7b7";
   msgEl.textContent = `Published ${payload.c} (${payload.y}) to the live archive.`;
   $("#adminUploadForm").reset();

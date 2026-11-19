@@ -9,9 +9,11 @@ Deno.serve(async req=>{
   const {reference}=await req.json();
   const {data:used}=await sb.from("payments").select("reference").eq("reference",reference).maybeSingle();
   if(used)return json({error:"Reference already used"},400);
+  const {data:settings}=await sb.from("app_settings").select("price_ghs").eq("id",1).maybeSingle();
+  const minPesewas=Math.max(100,Math.round(Number(settings?.price_ghs??30)*100));
   const r=await fetch(`https://api.paystack.co/transaction/verify/${encodeURIComponent(reference)}`,{headers:{Authorization:`Bearer ${Deno.env.get("PAYSTACK_SECRET_KEY")}`}});
   const {data}=await r.json();
-  if(data?.status!=="success"||data.currency!=="GHS"||data.amount<3000||data.customer?.email!==user.email)return json({ok:false},400);
+  if(data?.status!=="success"||data.currency!=="GHS"||data.amount<minPesewas||data.customer?.email!==user.email)return json({ok:false},400);
   const {data:p}=await sb.from("profiles").select("premium_until").eq("id",user.id).single();
   const base=p?.premium_until&&new Date(p.premium_until)>new Date()?new Date(p.premium_until):new Date();
   base.setDate(base.getDate()+30);

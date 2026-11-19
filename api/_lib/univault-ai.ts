@@ -16,6 +16,109 @@ export function createGeminiClient(apiKey: string): GoogleGenAI {
   });
 }
 
+const memoryFreeAiUsage = new Map<string, number>();
+
+export async function checkAndConsumeAiQuota(opts: {
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+  token: string;
+  userId: string;
+}): Promise<{
+  allowed: boolean;
+  unlimited: boolean;
+  freeRemaining: number | null;
+  freeLimit: number;
+  error?: string;
+}> {
+  const headers = {
+    apikey: opts.supabaseAnonKey,
+    Authorization: `Bearer ${opts.token}`,
+  };
+
+  // Try atomic DB RPC first (enforces admin/premium + consumes free trial quota across devices)
+  try {
+    const rpcRes = await fetch(`${opts.supabaseUrl}/rest/v1/rpc/consume_free_ai`, {
+      method: 'POST',
+      headers: {
+        ...headers,
+        'Content-Type': 'application/json',
+      },
+      body: '{}',
+    });
+    if (rpcRes.ok) {
+      const rpc = (await rpcRes.json()) as {
+        allowed?: boolean;
+        unlimited?: boolean;
+        remaining?: number;
+        limit?: number;
+      } | null;
+      if (rpc && typeof rpc.allowed === 'boolean') {
+        const limit = Number(rpc.limit ?? 5);
+        const remaining = rpc.unlimited ? null : Number(rpc.remaining ?? 0);
+        return {
+          allowed: rpc.allowed,
+          unlimited: Boolean(rpc.unlimited),
+          freeRemaining: remaining,
+          freeLimit: limit,
+          error: rpc.allowed
+            ? undefined
+            : `Free AI trial limit reached (${limit} uses). Upgrade to Premium to continue.`,
+        };
+      }
+    }
+  } catch {}
+
+  // Fallback when consume_free_ai RPC is not yet installed in Supabase SQL Editor
+  const [profRes, admRes, setRes] = await Promise.all([
+    fetch(
+      `${opts.supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(opts.userId)}&select=premium_until`,
+      { headers }
+    ),
+    fetch(
+      `${opts.supabaseUrl}/rest/v1/admins?user_id=eq.${encodeURIComponent(opts.userId)}&select=user_id`,
+      { headers }
+    ),
+    fetch(`${opts.supabaseUrl}/rest/v1/app_settings?id=eq.1&select=free_ai_limit`, { headers }).catch(
+      () => null
+    ),
+  ]);
+
+  const profRows = profRes.ok
+    ? ((await profRes.json()) as Array<{ premium_until?: string | null }>)
+    : [];
+  const admRows = admRes.ok ? ((await admRes.json()) as Array<{ user_id?: string }>) : [];
+  const setRows =
+    setRes && setRes.ok ? ((await setRes.json()) as Array<{ free_ai_limit?: number }>) : [];
+
+  const premiumUntil = profRows[0]?.premium_until;
+  const isAdmin = admRows.length > 0;
+  const isPremium = Boolean(premiumUntil && new Date(premiumUntil) > new Date());
+  const freeLimit = Math.max(0, Number(setRows[0]?.free_ai_limit ?? 5));
+
+  if (isPremium || isAdmin) {
+    return { allowed: true, unlimited: true, freeRemaining: null, freeLimit };
+  }
+
+  const used = memoryFreeAiUsage.get(opts.userId) ?? 0;
+  if (used >= freeLimit) {
+    return {
+      allowed: false,
+      unlimited: false,
+      freeRemaining: 0,
+      freeLimit,
+      error: `Free AI trial limit reached (${freeLimit} uses). Upgrade to Premium to continue.`,
+    };
+  }
+  const nextUsed = used + 1;
+  memoryFreeAiUsage.set(opts.userId, nextUsed);
+  return {
+    allowed: true,
+    unlimited: false,
+    freeRemaining: Math.max(freeLimit - nextUsed, 0),
+    freeLimit,
+  };
+}
+
 export function normalizeSpaces(value: string): string {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
@@ -438,6 +541,7 @@ export interface ProcessedMaterialResult {
   transcript: string;
   summary: string;
   questionsDetected: string[];
+  ocrUsed?: boolean;
   metadata: {
     department: string;
     course_code: string;
@@ -545,14 +649,17 @@ export async function processUploadedMaterial(opts: {
   apiKey: string;
   fileName: string;
   mimeType: string;
-  dataBase64: string;
+  dataBase64?: string;
+  preprocessedText?: string;
+  ocrUsed?: boolean;
 }): Promise<ProcessedMaterialResult> {
   const ai = createGeminiClient(opts.apiKey);
   const { category, resolvedMime } = detectFileCategory(opts.fileName, opts.mimeType);
-  const cleanB64 = opts.dataBase64.replace(/^data:[^;]+;base64,/, '').trim();
-  const buffer = Buffer.from(cleanB64, 'base64');
+  const preprocessed = String(opts.preprocessedText || '').trim();
+  const cleanB64 = String(opts.dataBase64 || '').replace(/^data:[^;]+;base64,/, '').trim();
+  const buffer = cleanB64 ? Buffer.from(cleanB64, 'base64') : Buffer.alloc(0);
 
-  if (!buffer.byteLength) {
+  if (!buffer.byteLength && !preprocessed) {
     throw new Error('The uploaded file is empty.');
   }
 
@@ -634,45 +741,64 @@ export async function processUploadedMaterial(opts: {
     }
   } else if (category === 'pdf' || category === 'image') {
     mediaType = 'written';
-    const fileHandle = await uploadToGeminiFilesIfLarge(ai, buffer, opts.fileName, resolvedMime);
-    try {
+    if (buffer.byteLength > 0) {
+      const fileHandle = await uploadToGeminiFilesIfLarge(ai, buffer, opts.fileName, resolvedMime);
+      try {
+        const ocrHint = preprocessed
+          ? `\n\nPre-processed client-side OCR / PDF text extracted from the file (use the visual file to verify formulas, diagrams, and fix any OCR typos):\n${preprocessed.slice(0, 60000)}`
+          : '';
+        const docRes = await ai.models.generateContent({
+          model: 'gemini-4-hydrogen',
+          contents: {
+            parts: [
+              fileHandle.part,
+              {
+                text: `Extract ALL written questions, instructions, mark allocations, formulas, and study content verbatim from "${opts.fileName}". Organize cleanly in "cleanedText", list each distinct question in "questionsDetected", summarize in "summary", and extract course metadata (department, course_code, course_title, year, semester, description) if present.${ocrHint}`,
+              },
+            ],
+          },
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: STRUCTURED_SCHEMA,
+          },
+        });
+        structuredRaw = docRes.text ?? '{}';
+      } finally {
+        await fileHandle.cleanup?.();
+      }
+    } else {
       const docRes = await ai.models.generateContent({
         model: 'gemini-4-hydrogen',
-        contents: {
-          parts: [
-            fileHandle.part,
-            {
-              text: `Extract ALL written questions, instructions, mark allocations, formulas, and study content verbatim from "${opts.fileName}". Organize cleanly in "cleanedText", list each distinct question in "questionsDetected", summarize in "summary", and extract course metadata (department, course_code, course_title, year, semester, description) if present.`,
-            },
-          ],
-        },
+        contents: `Client-side extracted / OCR text from "${opts.fileName}":\n\n${preprocessed.slice(0, 80000)}`,
         config: {
+          systemInstruction:
+            'You are a KNUST academic archivist. Clean up any OCR line-break or spelling artifacts while keeping all examination questions, numbering, mark allocations, and equations intact in "cleanedText", list each distinct question in "questionsDetected", write a concise "summary", and extract metadata (department, course_code, course_title, year, semester, description) if present.',
           responseMimeType: 'application/json',
           responseSchema: STRUCTURED_SCHEMA,
         },
       });
       structuredRaw = docRes.text ?? '{}';
-    } finally {
-      await fileHandle.cleanup?.();
     }
   } else {
     mediaType = 'written';
-    let rawText = '';
+    let rawText = preprocessed;
     const isZipHeader = buffer.length >= 2 && buffer[0] === 0x50 && buffer[1] === 0x4b;
 
-    if (category === 'docx' || (category === 'legacy_doc' && isZipHeader)) {
-      rawText = await extractDocxText(buffer);
-    } else if (category === 'pptx' || (category === 'legacy_ppt' && isZipHeader)) {
-      rawText = await extractPptxText(buffer);
-    } else if (category === 'legacy_doc' || category === 'legacy_ppt') {
-      rawText = extractLegacyBinaryText(buffer);
-      if (rawText.length < 40) {
-        throw new Error(
-          `Legacy binary ${category === 'legacy_doc' ? '.doc' : '.ppt'} could not be parsed cleanly. Please save as ${category === 'legacy_doc' ? '.docx' : '.pptx'} or .pdf and upload again.`
-        );
+    if (!rawText) {
+      if (category === 'docx' || (category === 'legacy_doc' && isZipHeader)) {
+        rawText = await extractDocxText(buffer);
+      } else if (category === 'pptx' || (category === 'legacy_ppt' && isZipHeader)) {
+        rawText = await extractPptxText(buffer);
+      } else if (category === 'legacy_doc' || category === 'legacy_ppt') {
+        rawText = extractLegacyBinaryText(buffer);
+        if (rawText.length < 40) {
+          throw new Error(
+            `Legacy binary ${category === 'legacy_doc' ? '.doc' : '.ppt'} could not be parsed cleanly. Please save as ${category === 'legacy_doc' ? '.docx' : '.pptx'} or .pdf and upload again.`
+          );
+        }
+      } else {
+        rawText = buffer.toString('utf8').trim();
       }
-    } else {
-      rawText = buffer.toString('utf8').trim();
     }
 
     if (!rawText) {
@@ -718,6 +844,7 @@ export async function processUploadedMaterial(opts: {
     transcript: finalTranscript,
     summary,
     questionsDetected,
+    ocrUsed: Boolean(opts.ocrUsed),
     metadata: {
       department: normalizeSpaces(String(parsed.department || '')),
       course_code: normCode,

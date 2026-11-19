@@ -37,14 +37,25 @@ Deno.serve(async (req) => {
     } = await req.json();
 
     const cleanAttachment = String(attachmentContext || "").trim().slice(0, 45000);
-    const [{ data: p }, { data: adm }] = await Promise.all([
+    const [{ data: p }, { data: adm }, { data: settings }] = await Promise.all([
       sb.from("profiles").select("*").eq("id", user.id).single(),
       sb.from("admins").select("user_id").eq("user_id", user.id).maybeSingle(),
+      sb.from("app_settings").select("free_ai_limit").eq("id", 1).maybeSingle(),
     ]);
-    const premium = p?.premium_until && new Date(p.premium_until) > new Date();
-    const hasUploadedSource = Boolean(cleanAttachment) && (mode === "chat" || mode === "explain");
-    if (!premium && !adm && !hasUploadedSource) {
-      return json({ error: "Premium required. Upgrade to continue." }, 402);
+    const premium = Boolean(p?.premium_until && new Date(p.premium_until) > new Date());
+    const freeLimit = Math.max(0, Number(settings?.free_ai_limit ?? 5));
+    const currentUses = Number(p?.ai_uses ?? 0);
+    let freeRemaining: number | null = null;
+
+    if (!premium && !adm) {
+      if (currentUses >= freeLimit) {
+        return json(
+          { error: `Free AI trial limit reached (${freeLimit} uses). Upgrade to Premium to continue.` },
+          402
+        );
+      }
+      freeRemaining = Math.max(freeLimit - (currentUses + 1), 0);
+      await sb.from("profiles").update({ ai_uses: currentUses + 1 }).eq("id", user.id);
     }
 
     const apiKey = Deno.env.get("GEMINI_API_KEY");
@@ -56,7 +67,7 @@ Deno.serve(async (req) => {
     }
 
     let qs: any[] = [];
-    if (course && (premium || adm)) {
+    if (course) {
       const r = await sb
         .from("questions")
         .select("year,semester,question_content(content)")
@@ -102,7 +113,11 @@ Deno.serve(async (req) => {
           },
         },
       });
-      return json({ text: (response.text ?? "[]").trim() });
+      return json({
+        text: (response.text ?? "[]").trim(),
+        freeRemaining,
+        freeLimit,
+      });
     }
 
     if (mode === "explain") {
@@ -116,7 +131,11 @@ Deno.serve(async (req) => {
         contents: prompt,
         config: { systemInstruction },
       });
-      return json({ text: response.text ?? "" });
+      return json({
+        text: response.text ?? "",
+        freeRemaining,
+        freeLimit,
+      });
     }
 
     systemInstruction += `Solve questions step by step with clear working, and provide deep explanations whenever asked about a specific question or uploaded document/recording. When asked to predict, analyse repeated topics, question formats, mark weighting and lecturer habits across years, and say which topics are most likely; label predictions as estimates, never guarantees.`;
@@ -134,7 +153,11 @@ Deno.serve(async (req) => {
       config: { systemInstruction },
     });
 
-    return json({ text: response.text ?? "" });
+    return json({
+      text: response.text ?? "",
+      freeRemaining,
+      freeLimit,
+    });
   } catch (err: any) {
     return json({ error: err?.message || "Unexpected Edge Function error" }, 500);
   }

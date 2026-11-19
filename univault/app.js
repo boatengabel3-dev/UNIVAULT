@@ -1,4 +1,4 @@
-let Q = [], user = null, P = {}, hist = [], cur = null, quiz = [], myUploads = [], myPayouts = [], dashStatus = "all", activeAttachment = null, dupCheckTimer = null;
+let Q = [], user = null, P = {}, hist = [], cur = null, quiz = [], myUploads = [], myPayouts = [], dashStatus = "all", activeAttachment = null, dupCheckTimer = null, isAdminUser = false, lastUploadBody = "", appSettings = { price_ghs: Number(C.PRICE_GHS || 30), free_ai_limit: 5 };
 
 function setMenuOpen(open) {
   const menu = $("#navMenu"), btn = $("#menuBtn");
@@ -7,7 +7,21 @@ function setMenuOpen(open) {
   btn.setAttribute("aria-expanded", String(open));
 }
 
-function show(v) {
+function syncUrlParams(updates) {
+  try {
+    const u = new URL(location.href);
+    Object.entries(updates).forEach(([k, v]) => {
+      if (v === null || v === undefined || v === "") {
+        u.searchParams.delete(k);
+      } else {
+        u.searchParams.set(k, String(v));
+      }
+    });
+    history.replaceState(null, "", u.pathname + u.search + u.hash);
+  } catch {}
+}
+
+function show(v, skipTransition = false) {
   const targetSection = document.getElementById(v);
   if (!targetSection) return;
   const activeBtn = document.querySelector(`nav button[data-v="${v}"]`);
@@ -29,11 +43,13 @@ function show(v) {
       b.classList.toggle("on", active);
       if (active && $("#activeViewLabel")) $("#activeViewLabel").textContent = b.textContent;
     });
+    syncUrlParams({ view: v === "browse" ? null : v, ...(v !== "browse" ? { paper: null } : {}) });
     window.uvRevealObserve?.(targetSection);
   };
 
   setMenuOpen(false);
-  if (alreadyVisible || typeof uvTransition === "undefined") {
+  if (v !== "chat") stopVoiceInput?.();
+  if (alreadyVisible || skipTransition || typeof uvTransition === "undefined") {
     apply();
   } else {
     uvTransition.tab(apply, label);
@@ -67,15 +83,28 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") setMenuOpen(false);
 });
 
+const initialParams = new URLSearchParams(location.search);
+
 (async () => {
   try {
     const {
       data: { session },
     } = await sb.auth.getSession();
-    if (!session) return location.replace("signup.html");
+    if (!session) {
+      const nextDest = location.pathname + location.search;
+      return location.replace("signup.html?next=" + encodeURIComponent(nextDest));
+    }
     user = session.user;
     await refresh();
     await load();
+
+    const initView = initialParams.get("view");
+    const initPaper = initialParams.get("paper");
+    if (initPaper) {
+      await openPaperById(initPaper);
+    } else if (initView && initView !== "browse") {
+      show(initView, true);
+    }
   } finally {
     window.dispatchEvent(new CustomEvent("uv:rendered"));
   }
@@ -154,13 +183,82 @@ if ($("#dashFilter")) {
   };
 }
 
+function formatPriceGhs(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return "30";
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+}
+
+function updatePricingAndQuotaUi(remainingOverride) {
+  const price = Number(appSettings.price_ghs);
+  const effectivePrice = Number.isFinite(price) && price > 0 ? price : 30;
+  C.PRICE_GHS = effectivePrice;
+  const priceLabel = formatPriceGhs(effectivePrice);
+
+  const freeLimit = Math.max(0, Math.floor(Number(appSettings.free_ai_limit ?? 5)));
+  let remaining;
+  if (typeof remainingOverride === "number" && Number.isFinite(remainingOverride)) {
+    remaining = Math.max(0, remainingOverride);
+    P.ai_uses = Math.max(0, freeLimit - remaining);
+  } else {
+    remaining = Math.max(0, freeLimit - Number(P.ai_uses || 0));
+  }
+
+  if ($("#badge")) {
+    $("#badge").textContent = P.on
+      ? "Premium until " + new Date(P.premium_until).toLocaleDateString()
+      : isAdminUser
+        ? "Admin"
+        : freeLimit > 0
+          ? `Free · ${remaining} AI left`
+          : "Free";
+  }
+
+  if ($("#priceDisplay")) {
+    $("#priceDisplay").innerHTML = `GH₵ ${esc(priceLabel)} <small>/ month</small>`;
+  }
+  if ($("#priceDesc")) {
+    $("#priceDesc").textContent =
+      freeLimit > 0
+        ? `Read every past question and enjoy unlimited AI tutor, predictions and quizzes. Free accounts include ${freeLimit} AI tutor use${freeLimit === 1 ? "" : "s"} before upgrading.`
+        : "Read every past question and enjoy unlimited AI tutor, predictions and quizzes.";
+  }
+
+  const quotaEl = $("#aiQuotaLabel");
+  if (quotaEl) {
+    if (P.on) {
+      quotaEl.textContent = "Unlimited AI access (Premium active)";
+    } else if (isAdminUser) {
+      quotaEl.textContent = "Unlimited AI access (Admin)";
+    } else if (freeLimit === 0) {
+      quotaEl.textContent = `Free AI trial is currently disabled. Upgrade to Premium (GH₵${priceLabel}/month) to use AI Tutor.`;
+    } else if (remaining > 0) {
+      quotaEl.textContent = `Free trial: ${remaining} of ${freeLimit} free AI use${freeLimit === 1 ? "" : "s"} remaining before Premium (GH₵${priceLabel}/month).`;
+    } else {
+      quotaEl.textContent = `Free AI trial used (${freeLimit}/${freeLimit}). Upgrade to Premium (GH₵${priceLabel}/month) for unlimited AI.`;
+    }
+  }
+}
+
 async function refresh() {
-  const { data } = await sb.from("profiles").select("*").single();
+  const [{ data }, settingsRes, adminRes] = await Promise.all([
+    sb.from("profiles").select("*").single(),
+    sb.from("app_settings").select("price_ghs,free_ai_limit").eq("id", 1).maybeSingle(),
+    sb.from("admins").select("user_id").eq("user_id", user.id).maybeSingle(),
+  ]);
   P = data || {};
   P.on = P.premium_until && new Date(P.premium_until) > new Date();
-  $("#badge").textContent = P.on
-    ? "Premium until " + new Date(P.premium_until).toLocaleDateString()
-    : "Free";
+  isAdminUser = Boolean(adminRes?.data);
+  if (settingsRes?.data) {
+    appSettings = {
+      price_ghs: Number(settingsRes.data.price_ghs) || 30,
+      free_ai_limit:
+        settingsRes.data.free_ai_limit !== null && settingsRes.data.free_ai_limit !== undefined
+          ? Number(settingsRes.data.free_ai_limit)
+          : 5,
+    };
+  }
+  updatePricingAndQuotaUi();
   $("#bal").textContent = fmt(P.balance || 0);
 
   const { data: po } = await sb
@@ -200,18 +298,25 @@ async function load() {
   $("#dep").innerHTML =
     '<option value="">All departments</option>' +
     deps.map((d) => `<option>${esc(d)}</option>`).join("");
+  const initDep = initialParams.get("dep");
+  const initQ = initialParams.get("q");
+  if (initDep && deps.includes(initDep)) $("#dep").value = initDep;
+  if (initQ && !$("#search").value) $("#search").value = initQ;
   document
     .querySelectorAll(".courses")
     .forEach((s) => (s.innerHTML = codes.map((c) => `<option>${esc(c)}</option>`).join("")));
-  render();
+  render(false);
 }
 
-function render() {
+function render(syncUrl = true) {
   const d = $("#dep").value,
     raw = $("#search").value.trim(),
     t = raw.toLowerCase(),
     by = {};
   $("#clearSearch").hidden = !d && !raw;
+  if (syncUrl) {
+    syncUrlParams({ dep: d || null, q: raw || null });
+  }
   const filtered = Q.filter(
     (q) =>
       (!d || q.department === d) &&
@@ -244,18 +349,19 @@ function render() {
   window.uvRevealObserve?.($("#list"));
 }
 
-$("#dep").onchange = $("#search").oninput = render;
+$("#dep").onchange = $("#search").oninput = () => render(true);
 $("#clearSearch").onclick = () => {
   $("#dep").value = "";
   $("#search").value = "";
-  render();
+  render(true);
   $("#search").focus();
 };
 
-$("#list").onclick = async (e) => {
-  const id = e.target.dataset.id;
-  if (!id) return;
-  cur = Q.find((q) => q.id === id);
+async function openPaperById(id) {
+  const found = Q.find((q) => q.id === id);
+  if (!found) return;
+  cur = found;
+  syncUrlParams({ paper: id, view: null });
   $("#rt").textContent = `${cur.course_code} · ${cur.year}${cur.semester ? " Sem " + cur.semester : ""}`;
   const { data } = await sb
     .from("question_content")
@@ -265,11 +371,26 @@ $("#list").onclick = async (e) => {
   cur.content = data?.content;
   $("#rb").textContent = data
     ? data.content
-    : "Subscribe for GH₵30/month to read this paper.";
+    : `Subscribe for GH₵${formatPriceGhs(C.PRICE_GHS)}/month to read this paper.`;
   $("#solve").hidden = !data;
-  $("#reader").showModal();
-  if (!data) show("pricing");
+  if (!$("#reader").open) $("#reader").showModal();
+  if (!data) {
+    $("#reader").close();
+    show("pricing");
+  }
+}
+
+$("#list").onclick = (e) => {
+  const id = e.target.dataset.id;
+  if (!id) return;
+  openPaperById(id);
 };
+
+if ($("#reader")) {
+  $("#reader").addEventListener("close", () => {
+    syncUrlParams({ paper: null });
+  });
+}
 
 $("#solve").onclick = () => {
   $("#reader").close();
@@ -414,53 +535,11 @@ async function runDuplicateCheck(courseCode, year, semester, bodyText, showClear
   return local;
 }
 
-function readFileAsBase64(file) {
-  return new Promise((resolve, reject) => {
-    if (!file) return reject(new Error("No file selected."));
-    if (file.size > 20 * 1024 * 1024) {
-      return reject(new Error("File is larger than 20 MB. Please upload a smaller file."));
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const res = String(reader.result || "");
-      const idx = res.indexOf(",");
-      resolve(idx >= 0 ? res.slice(idx + 1) : res);
-    };
-    reader.onerror = () => reject(new Error("Could not read the selected file."));
-    reader.readAsDataURL(file);
-  });
-}
-
-async function processFileWithGemini(file) {
-  const {
-    data: { session },
-  } = await sb.auth.getSession();
-  if (!session?.access_token) {
-    throw new Error("Please sign in first.");
+async function processFileWithGemini(file, onStatus) {
+  if (window.uvFileTools?.processFile) {
+    return window.uvFileTools.processFile(file, onStatus);
   }
-  const dataBase64 = await readFileAsBase64(file);
-  const res = await fetch("/api/ai-process-file", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${session.access_token}`,
-    },
-    body: JSON.stringify({
-      fileName: file.name,
-      mimeType: file.type || "application/octet-stream",
-      dataBase64,
-    }),
-  });
-  const ct = res.headers.get("content-type") || "";
-  if (!ct.includes("application/json")) {
-    if (res.status === 413) {
-      throw new Error("File exceeds the hosted upload limit (~4 MB). Please upload a smaller or compressed file.");
-    }
-    throw new Error(`Upload failed (${res.status}).`);
-  }
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Failed to process file.");
-  return data;
+  throw new Error("File processor script failed to load.");
 }
 
 function setActiveAttachment(data) {
@@ -500,21 +579,35 @@ async function ai(body) {
     throw new Error("Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.");
   }
 
+  const syncQuotaFromResponse = (payload) => {
+    if (!payload || typeof payload !== "object") return;
+    if (typeof payload.freeLimit === "number") {
+      appSettings.free_ai_limit = payload.freeLimit;
+    }
+    if (typeof payload.freeRemaining === "number") {
+      updatePricingAndQuotaUi(payload.freeRemaining);
+    }
+  };
+
   // Always call /api/ai-chat directly when attachmentContext or explain mode is used, or fallback automatically
   const hasRichPayload = Boolean(body.attachmentContext) || body.mode === "explain";
   let m = "Edge Function request failed.";
 
   if (!hasRichPayload) {
     const { data, error } = await sb.functions.invoke("ai-chat", { body });
-    if (!error) return data.text;
+    if (!error) {
+      syncQuotaFromResponse(data);
+      return data.text;
+    }
     m = error.message || m;
     try {
       const jsonErr = await error.context?.json?.();
+      syncQuotaFromResponse(jsonErr);
       if (jsonErr?.error) m = jsonErr.error;
     } catch {}
   }
 
-  if (hasRichPayload || !/sign in|premium/i.test(m)) {
+  if (hasRichPayload || !/sign in|premium|trial limit/i.test(m)) {
     try {
       const {
         data: { session },
@@ -532,14 +625,15 @@ async function ai(body) {
       const contentType = apiRes.headers.get("content-type") || "";
       if (contentType.includes("application/json")) {
         const apiData = await apiRes.json();
+        syncQuotaFromResponse(apiData);
         if (apiRes.ok) return apiData.text;
         m = apiData.error || m;
-        if (/premium/i.test(m)) show("pricing");
+        if (/premium|trial limit/i.test(m)) show("pricing");
         throw new Error(m);
       }
     } catch (fallbackErr) {
       if (fallbackErr instanceof Error && fallbackErr.message !== m) {
-        if (/premium/i.test(fallbackErr.message)) show("pricing");
+        if (/premium|trial limit/i.test(fallbackErr.message)) show("pricing");
         throw fallbackErr;
       }
     }
@@ -549,7 +643,7 @@ async function ai(body) {
     }
   }
 
-  if (/premium/i.test(m)) show("pricing");
+  if (/premium|trial limit/i.test(m)) show("pricing");
   throw new Error(m);
 }
 
@@ -621,10 +715,153 @@ async function requestDetailedExplanation(targetQuestion, inlineContext = "") {
   }
 }
 
+const SpeechRecognitionApi =
+  window.SpeechRecognition || window.webkitSpeechRecognition || null;
+let activeRecognition = null;
+let isVoiceRecording = false;
+
+function setMicStatus(text, isError = false) {
+  const st = $("#micStatus");
+  if (!st) return;
+  if (!text) {
+    st.hidden = true;
+    st.textContent = "";
+    st.className = "mic-status";
+    return;
+  }
+  st.hidden = false;
+  st.textContent = text;
+  st.className = isError ? "mic-status is-err" : "mic-status";
+}
+
+function setMicButtonState(recording) {
+  isVoiceRecording = recording;
+  const btn = $("#micBtn");
+  const lbl = $("#micBtnLabel");
+  if (btn) {
+    btn.classList.toggle("is-recording", recording);
+    btn.setAttribute("aria-pressed", String(recording));
+    btn.setAttribute(
+      "aria-label",
+      recording ? "Stop voice recording" : "Record question with microphone"
+    );
+  }
+  if (lbl) lbl.textContent = recording ? "Stop" : "Voice";
+}
+
+function stopVoiceInput() {
+  if (activeRecognition && isVoiceRecording) {
+    try {
+      activeRecognition.stop();
+    } catch {}
+  }
+  setMicButtonState(false);
+}
+
+if ($("#micBtn")) {
+  if (!SpeechRecognitionApi) {
+    $("#micBtn").title =
+      "Voice dictation is not supported in this browser. Try Chrome, Edge, or Safari, or upload an MP3 audio recording.";
+  }
+
+  $("#micBtn").onclick = () => {
+    if (!SpeechRecognitionApi) {
+      setMicStatus(
+        "Voice dictation is not supported in this browser. Use Chrome, Edge, or Safari, or tap Upload File / Image / Audio / Video.",
+        true
+      );
+      return;
+    }
+
+    if (isVoiceRecording && activeRecognition) {
+      stopVoiceInput();
+      return;
+    }
+
+    try {
+      const rec = new SpeechRecognitionApi();
+      activeRecognition = rec;
+      rec.lang = navigator.language || "en-US";
+      rec.continuous = true;
+      rec.interimResults = true;
+
+      const baseText = $("#msg")?.value.trim() || "";
+      let finalTranscript = "";
+      let hadError = false;
+
+      rec.onstart = () => {
+        setMicButtonState(true);
+        setMicStatus("Listening... speak your question clearly, then tap Stop or Send.");
+      };
+
+      rec.onresult = (event) => {
+        let interim = "";
+        let finalized = "";
+        for (let i = 0; i < event.results.length; i++) {
+          const piece = event.results[i][0]?.transcript || "";
+          if (event.results[i].isFinal) {
+            finalized += (finalized ? " " : "") + piece.trim();
+          } else {
+            interim += (interim ? " " : "") + piece.trim();
+          }
+        }
+        finalTranscript = finalized;
+        const combined = [baseText, finalTranscript, interim]
+          .filter(Boolean)
+          .join(" ")
+          .replace(/\s+/g, " ")
+          .trim();
+        if ($("#msg")) $("#msg").value = combined;
+      };
+
+      rec.onerror = (event) => {
+        hadError = true;
+        const code = event?.error || "";
+        let msg = "Microphone recording stopped.";
+        if (code === "not-allowed" || code === "service-not-allowed") {
+          msg =
+            "Microphone permission denied. Allow microphone access in your browser settings and try again.";
+        } else if (code === "audio-capture") {
+          msg = "No microphone detected on this device.";
+        } else if (code === "no-speech") {
+          msg = "No speech detected. Tap Voice and speak closer to your microphone.";
+        } else if (code === "network") {
+          msg = "Speech recognition requires an active network connection in this browser.";
+        }
+        setMicStatus(msg, true);
+        setMicButtonState(false);
+        activeRecognition = null;
+      };
+
+      rec.onend = () => {
+        setMicButtonState(false);
+        activeRecognition = null;
+        if (!hadError) {
+          const hasText = Boolean($("#msg")?.value.trim());
+          setMicStatus(
+            hasText
+              ? "Voice captured — review or tap Send to ask the AI Tutor."
+              : "Listening stopped."
+          );
+          if (hasText) $("#msg")?.focus();
+        }
+      };
+
+      rec.start();
+    } catch (err) {
+      setMicButtonState(false);
+      activeRecognition = null;
+      setMicStatus(err?.message || "Could not start microphone recording.", true);
+    }
+  };
+}
+
 $("#send").onclick = () => {
+  if (isVoiceRecording) stopVoiceInput();
   const t = $("#msg").value.trim();
   if (t && !$("#send").disabled) {
     $("#msg").value = "";
+    setMicStatus("");
     ask(t);
   }
 };
@@ -643,6 +880,7 @@ $("#predict").onclick = () =>
 
 if ($("#explainBtn")) {
   $("#explainBtn").onclick = () => {
+    if (isVoiceRecording) stopVoiceInput();
     const typed = $("#msg").value.trim();
     const selectedQ = $("#chatDetectedQ")?.value || "";
     const target = typed || selectedQ;
@@ -652,6 +890,7 @@ if ($("#explainBtn")) {
       return;
     }
     if (typed) $("#msg").value = "";
+    setMicStatus("");
     requestDetailedExplanation(target);
   };
 }
@@ -671,11 +910,18 @@ if ($("#chatFileBtn") && $("#chatFile")) {
     const file = e.target.files?.[0];
     if (!file) return;
     $("#chatFileBtn").disabled = true;
-    const statusBub = bub(`Processing "${file.name}" with Gemini AI...`, "a");
+    const statusBub = bub(`Reading "${file.name}"...`, "a");
     try {
-      const data = await processFileWithGemini(file);
+      const data = await processFileWithGemini(file, (msg) => {
+        statusBub.textContent = msg;
+      });
       setActiveAttachment(data);
-      const actionLabel = data.mediaType === "written" ? "Extracted" : "Transcribed";
+      const actionLabel =
+        data.mediaType === "written"
+          ? data.ocrUsed
+            ? "OCR-scanned & extracted"
+            : "Extracted"
+          : "Transcribed";
       statusBub.textContent =
         `${actionLabel} "${data.fileName}".\n\nSummary: ${data.summary || "Ready."}\n\n` +
         (data.questionsDetected?.length
@@ -754,22 +1000,43 @@ function scheduleUploadDupCheck() {
   }
 });
 
+function clearUploadPreview(resetExtractedBody = true) {
+  if ($("#uploadFile")) $("#uploadFile").value = "";
+  window.uvFileTools?.renderUploadPreview($("#uploadPreview"), null);
+  if ($("#uploadFileStatus")) {
+    $("#uploadFileStatus").textContent =
+      "Client-side PDF & Image OCR + Gemini AI extraction & duplicate normalization check.";
+  }
+  if (resetExtractedBody && lastUploadBody && $("#ub")?.value === lastUploadBody) {
+    $("#ub").value = "";
+  }
+  lastUploadBody = "";
+  setActiveAttachment(null);
+  showDupBanner(null);
+}
+
 if ($("#uploadFile")) {
   $("#uploadFile").onchange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     const stEl = $("#uploadFileStatus");
     if (stEl) {
-      stEl.textContent = `Processing "${file.name}" with Gemini AI (extracting text / transcribing media)...`;
+      stEl.textContent = `Starting client-side file reader for "${file.name}"...`;
     }
+    window.uvFileTools?.renderUploadPreview($("#uploadPreview"), null);
     showDupBanner(null);
     try {
-      const data = await processFileWithGemini(file);
+      const data = await processFileWithGemini(file, (msg) => {
+        if (stEl) stEl.textContent = msg;
+      });
       const formattedBody =
         data.transcript && data.transcript !== data.extractedText
           ? `${data.extractedText}\n\n[Transcript]\n${data.transcript}`
           : data.extractedText || data.transcript || "";
-      if (formattedBody) $("#ub").value = formattedBody;
+      if (formattedBody) {
+        $("#ub").value = formattedBody;
+        lastUploadBody = formattedBody;
+      }
 
       const meta = data.metadata || {};
       if (meta.department && !$("#ud").value.trim()) $("#ud").value = meta.department;
@@ -782,11 +1049,14 @@ if ($("#uploadFile")) {
       }
 
       setActiveAttachment(data);
+      window.uvFileTools?.renderUploadPreview($("#uploadPreview"), data, () =>
+        clearUploadPreview(true)
+      );
       if (stEl) {
         stEl.textContent =
           data.mediaType === "written"
-            ? `Extracted written content from "${file.name}". Review metadata and submit below.`
-            : `Transcribed ${data.mediaType} recording "${file.name}". Review and submit below.`;
+            ? `${data.ocrUsed ? "Client OCR + Gemini AI extracted" : "Extracted"} "${file.name}". Review preview & metadata, then submit.`
+            : `Transcribed ${data.mediaType} recording "${file.name}". Review preview & submit below.`;
       }
 
       const dup = await runDuplicateCheck(
@@ -873,6 +1143,7 @@ $("#usub").onclick = async () => {
       showDupBanner({ duplicate: true, reason: error.message });
       return;
     }
+    clearUploadPreview(false);
     showDupBanner({
       duplicate: false,
       verifiedMessage: "Submitted for review! You will earn GH₵3 once approved.",
@@ -901,7 +1172,7 @@ $("#pay").onclick = () => {
   PaystackPop.setup({
     key: C.PAYSTACK_PUBLIC_KEY,
     email: user.email,
-    amount: C.PRICE_GHS * 100,
+    amount: Math.round(Number(C.PRICE_GHS || 30) * 100),
     currency: "GHS",
     callback: (r) => {
       sb.functions

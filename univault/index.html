@@ -7,7 +7,7 @@
 <div class="card uv-reveal" tabindex="0"><h3>Browse by course and year</h3><p id="stat-copy">Find any paper in seconds.</p></div>
 <div class="card uv-reveal" tabindex="0"><h3>AI tutor and quizzes</h3><p>Solve past questions, predict patterns, and generate your own quizzes.</p></div>
 <div class="card uv-reveal" tabindex="0"><h3>Earn as you share</h3><p>GH₵3 for every approved upload, paid to your Mobile Money.</p></div>
-<div class="card uv-reveal" tabindex="0"><h3>GH₵30 / month</h3><p>Full access to every question and the AI tools.</p></div>
+<div class="card uv-reveal" tabindex="0"><h3 id="homePriceHeading">GH₵30 / month</h3><p id="homePriceCopy">Full access to every question and unlimited AI tools (try AI free before upgrading).</p></div>
 </section>
 
 <section id="catalog-search" class="search-sec uv-reveal" aria-labelledby="search-heading">
@@ -76,16 +76,29 @@
 
 <footer class="site-foot">
 <span>UniVault · Academic Past-Question Archive for KNUST</span>
-<span>Verified uploads · GH₵30 / month</span>
+<span id="homeFootPrice">Verified uploads · GH₵30 / month</span>
 </footer>
 </main>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" crossorigin="anonymous"></script><script src="config.js"></script><script>
 (()=>{
   const depEl=$("#home-dep"),qEl=$("#home-search"),clrEl=$("#home-clear"),stEl=$("#home-status"),listEl=$("#home-list");
+  const homeParams=new URLSearchParams(location.search);
+  const initHomeDep=homeParams.get("dep")||"";
+  const initHomeQ=homeParams.get("q")||"";
+  if(initHomeQ)qEl.value=initHomeQ;
   let courses=[];
-  function renderHome(){
+  function syncHomeUrl(){
+    try{
+      const u=new URL(location.href);
+      if(depEl.value)u.searchParams.set("dep",depEl.value);else u.searchParams.delete("dep");
+      if(qEl.value.trim())u.searchParams.set("q",qEl.value.trim());else u.searchParams.delete("q");
+      history.replaceState(null,"",u.pathname+u.search+u.hash);
+    }catch{}
+  }
+  function renderHome(syncUrl=true){
     const d=depEl.value,t=qEl.value.trim().toLowerCase();
     clrEl.hidden=!d&&!t;
+    if(syncUrl)syncHomeUrl();
     const matches=courses.filter(c=>{
       if(d&&c.department!==d)return false;
       if(!t)return true;
@@ -103,12 +116,12 @@
       return;
     }
     stEl.textContent=`Showing ${matches.length} of ${courses.length} courses`;
-    listEl.innerHTML=matches.map(c=>`<article class="card archive-card uv-reveal"><small>${esc(c.department)}</small><h3>${esc(c.course_code)}<span>${esc(c.course_title||"Past Examination Papers")}</span></h3><div class="chips">${c.papers.map(p=>`<a class="chip-link" href="signup.html">${p.year}${p.semester?" S"+p.semester:""}</a>`).join("")}</div></article>`).join("")||'<p class="search-empty">No past papers match that course code or title.</p>';
+    listEl.innerHTML=matches.map(c=>`<article class="card archive-card uv-reveal"><small>${esc(c.department)}</small><h3>${esc(c.course_code)}<span>${esc(c.course_title||"Past Examination Papers")}</span></h3><div class="chips">${c.papers.map(p=>`<a class="chip-link" href="${p.id?`signup.html?next=${encodeURIComponent("app.html?paper="+p.id)}`:"signup.html"}">${p.year}${p.semester?" S"+p.semester:""}</a>`).join("")}</div></article>`).join("")||'<p class="search-empty">No past papers match that course code or title.</p>';
     window.uvRevealObserve?.(listEl);
   }
-  depEl.onchange=qEl.oninput=renderHome;
-  clrEl.onclick=()=>{depEl.value="";qEl.value="";renderHome();qEl.focus()};
-  renderHome();
+  depEl.onchange=qEl.oninput=()=>renderHome(true);
+  clrEl.onclick=()=>{depEl.value="";qEl.value="";renderHome(true);qEl.focus()};
+  renderHome(false);
   if(isValidSupabaseUrl){
     fetch(C.SUPABASE_URL.replace(/\/$/,"")+"/functions/v1/public-stats",{headers:{apikey:C.SUPABASE_ANON_KEY,Authorization:"Bearer "+C.SUPABASE_ANON_KEY}})
       .then(r=>r.ok?r.json():null)
@@ -117,7 +130,28 @@
         if(d.totalQuestions>0){$("#stat-copy").textContent=`Find any paper in seconds — ${d.totalQuestions} verified papers across ${d.totalCourses} courses.`;}
         courses=Array.isArray(d.courses)?d.courses:[];
         depEl.innerHTML='<option value="">All departments</option>'+(d.departments||[]).map(dep=>`<option value="${esc(dep)}">${esc(dep)}</option>`).join("");
-        renderHome();
+        if(initHomeDep&&Array.isArray(d.departments)&&d.departments.includes(initHomeDep))depEl.value=initHomeDep;
+        renderHome(false);
+      }).catch(()=>{});
+
+    sb.from("app_settings")
+      .select("price_ghs,free_ai_limit")
+      .eq("id",1)
+      .maybeSingle()
+      .then(({data})=>{
+        if(!data)return;
+        const price=Number(data.price_ghs);
+        const freeLim=Number(data.free_ai_limit);
+        if(price>0){
+          const pTxt=`GH₵${Number.isInteger(price)?price:price.toFixed(2)} / month`;
+          if($("#homePriceHeading"))$("#homePriceHeading").textContent=pTxt;
+          if($("#homeFootPrice"))$("#homeFootPrice").textContent=`Verified uploads · ${pTxt}`;
+        }
+        if(Number.isFinite(freeLim)&&$("#homePriceCopy")){
+          $("#homePriceCopy").textContent=freeLim>0
+            ?`Full access to every question and unlimited AI tools (includes ${freeLim} free AI uses before Premium).`
+            :"Full access to every question and the AI tools.";
+        }
       }).catch(()=>{});
 
     sb.from("testimonials")

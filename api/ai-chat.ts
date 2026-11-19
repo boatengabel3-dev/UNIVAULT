@@ -1,6 +1,6 @@
 import { Type } from '@google/genai';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { createGeminiClient } from './_lib/univault-ai.js';
+import { checkAndConsumeAiQuota, createGeminiClient } from './_lib/univault-ai.js';
 
 type VercelRequest = IncomingMessage & {
   method?: string;
@@ -81,32 +81,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const attachmentContext = String(body.attachmentContext || '').trim().slice(0, 45000);
     const targetQuestion = String(body.targetQuestion || '').trim();
 
-    const [profRes, admRes] = await Promise.all([
-      fetch(
-        `${supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(user.id)}&select=premium_until`,
-        { headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${token}` } }
-      ),
-      fetch(
-        `${supabaseUrl}/rest/v1/admins?user_id=eq.${encodeURIComponent(user.id)}&select=user_id`,
-        { headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${token}` } }
-      ),
-    ]);
-    const profRows = profRes.ok
-      ? ((await profRes.json()) as Array<{ premium_until?: string | null }>)
-      : [];
-    const admRows = admRes.ok ? ((await admRes.json()) as Array<{ user_id?: string }>) : [];
-    const premiumUntil = profRows[0]?.premium_until;
-    const isAdmin = admRows.length > 0;
-    const isPremium = Boolean(premiumUntil && new Date(premiumUntil) > new Date());
-    const hasUploadedSource = Boolean(attachmentContext) && (mode === 'chat' || mode === 'explain');
-
-    if (!isPremium && !isAdmin && !hasUploadedSource) {
-      res.status(402).json({ error: 'Premium required. Upgrade to continue.' });
+    const quota = await checkAndConsumeAiQuota({
+      supabaseUrl,
+      supabaseAnonKey,
+      token,
+      userId: user.id,
+    });
+    if (!quota.allowed) {
+      res.status(402).json({
+        error: quota.error || 'Free AI trial limit reached. Upgrade to Premium to continue.',
+        freeRemaining: 0,
+        freeLimit: quota.freeLimit,
+      });
       return;
     }
 
     let qs: Array<{ year?: number; semester?: number; question_content?: { content?: string } }> = [];
-    if (course && (isPremium || isAdmin)) {
+    if (course) {
       const qRes = await fetch(
         `${supabaseUrl}/rest/v1/questions?course_code=eq.${encodeURIComponent(course)}&status=eq.approved&select=year,semester,question_content(content)&order=year.desc&limit=15`,
         { headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${token}` } }
@@ -149,7 +140,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           },
         },
       });
-      res.status(200).json({ text: (response.text ?? '[]').trim() });
+      res.status(200).json({
+        text: (response.text ?? '[]').trim(),
+        freeRemaining: quota.freeRemaining,
+        freeLimit: quota.freeLimit,
+      });
       return;
     }
 
@@ -164,7 +159,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         contents: prompt,
         config: { systemInstruction },
       });
-      res.status(200).json({ text: response.text ?? '' });
+      res.status(200).json({
+        text: response.text ?? '',
+        freeRemaining: quota.freeRemaining,
+        freeLimit: quota.freeLimit,
+      });
       return;
     }
 
@@ -188,7 +187,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       config: { systemInstruction },
     });
 
-    res.status(200).json({ text: response.text ?? '' });
+    res.status(200).json({
+      text: response.text ?? '',
+      freeRemaining: quota.freeRemaining,
+      freeLimit: quota.freeLimit,
+    });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : 'AI service error';
     res.status(500).json({ error: message });

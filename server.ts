@@ -4,6 +4,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import {
+  checkAndConsumeAiQuota,
   checkDuplicateQuestion,
   createGeminiClient,
   processUploadedMaterial,
@@ -63,10 +64,16 @@ app.post('/api/ai-process-file', async (req, res) => {
     }
 
     const { token, supabaseUrl, supabaseAnonKey } = await authenticateSupabaseUser(req);
-    const { fileName = 'upload', mimeType = '', dataBase64 = '' } = req.body || {};
+    const {
+      fileName = 'upload',
+      mimeType = '',
+      dataBase64 = '',
+      preprocessedText = '',
+      ocrUsed = false,
+    } = req.body || {};
 
-    if (!dataBase64 || typeof dataBase64 !== 'string') {
-      res.status(400).json({ error: 'No file data was provided.' });
+    if ((!dataBase64 || typeof dataBase64 !== 'string') && !String(preprocessedText || '').trim()) {
+      res.status(400).json({ error: 'No file data or extracted text was provided.' });
       return;
     }
 
@@ -74,7 +81,9 @@ app.post('/api/ai-process-file', async (req, res) => {
       apiKey: geminiKey,
       fileName: String(fileName),
       mimeType: String(mimeType),
-      dataBase64,
+      dataBase64: String(dataBase64 || ''),
+      preprocessedText: String(preprocessedText || ''),
+      ocrUsed: Boolean(ocrUsed),
     });
 
     const dup = await checkDuplicateQuestion({
@@ -152,42 +161,23 @@ app.post('/api/ai-chat', async (req, res) => {
 
     const cleanAttachment = String(attachmentContext || '').trim().slice(0, 45000);
 
-    const [profRes, admRes] = await Promise.all([
-      fetch(
-        `${supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(userId)}&select=premium_until`,
-        {
-          headers: {
-            apikey: supabaseAnonKey,
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      ),
-      fetch(
-        `${supabaseUrl}/rest/v1/admins?user_id=eq.${encodeURIComponent(userId)}&select=user_id`,
-        {
-          headers: {
-            apikey: supabaseAnonKey,
-            Authorization: `Bearer ${token}`,
-          },
-        }
-      ),
-    ]);
-    const profRows = profRes.ok
-      ? ((await profRes.json()) as Array<{ premium_until?: string | null }>)
-      : [];
-    const admRows = admRes.ok ? ((await admRes.json()) as Array<{ user_id?: string }>) : [];
-    const premiumUntil = profRows[0]?.premium_until;
-    const isAdmin = admRows.length > 0;
-    const isPremium = Boolean(premiumUntil && new Date(premiumUntil) > new Date());
-    const hasUploadedSource = Boolean(cleanAttachment) && (mode === 'chat' || mode === 'explain');
-
-    if (!isPremium && !isAdmin && !hasUploadedSource) {
-      res.status(402).json({ error: 'Premium required. Upgrade to continue.' });
+    const quota = await checkAndConsumeAiQuota({
+      supabaseUrl,
+      supabaseAnonKey,
+      token,
+      userId,
+    });
+    if (!quota.allowed) {
+      res.status(402).json({
+        error: quota.error || 'Free AI trial limit reached. Upgrade to Premium to continue.',
+        freeRemaining: 0,
+        freeLimit: quota.freeLimit,
+      });
       return;
     }
 
     let qs: Array<{ year?: number; semester?: number; question_content?: { content?: string } }> = [];
-    if (course && (isPremium || isAdmin)) {
+    if (course) {
       const qRes = await fetch(
         `${supabaseUrl}/rest/v1/questions?course_code=eq.${encodeURIComponent(course)}&status=eq.approved&select=year,semester,question_content(content)&order=year.desc&limit=15`,
         {
@@ -237,7 +227,11 @@ app.post('/api/ai-chat', async (req, res) => {
           },
         },
       });
-      res.json({ text: (response.text ?? '[]').trim() });
+      res.json({
+        text: (response.text ?? '[]').trim(),
+        freeRemaining: quota.freeRemaining,
+        freeLimit: quota.freeLimit,
+      });
       return;
     }
 
@@ -252,7 +246,11 @@ app.post('/api/ai-chat', async (req, res) => {
         contents: prompt,
         config: { systemInstruction },
       });
-      res.json({ text: response.text ?? '' });
+      res.json({
+        text: response.text ?? '',
+        freeRemaining: quota.freeRemaining,
+        freeLimit: quota.freeLimit,
+      });
       return;
     }
 
@@ -272,7 +270,11 @@ app.post('/api/ai-chat', async (req, res) => {
       config: { systemInstruction },
     });
 
-    res.json({ text: response.text ?? '' });
+    res.json({
+      text: response.text ?? '',
+      freeRemaining: quota.freeRemaining,
+      freeLimit: quota.freeLimit,
+    });
   } catch (err: unknown) {
     const status =
       err && typeof err === 'object' && 'status' in err && typeof err.status === 'number'

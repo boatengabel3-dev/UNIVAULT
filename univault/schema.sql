@@ -135,5 +135,41 @@ create policy "testimonials read" on testimonials for select using(approved=true
 create policy "testimonials insert" on testimonials for insert with check(char_length(trim(author_name))>=2 and char_length(trim(role))>=2 and char_length(trim(quote)) between 15 and 600 and (coalesce(approved,false)=false or is_admin()));
 create policy "testimonials admin update" on testimonials for update using(is_admin());
 create policy "testimonials admin delete" on testimonials for delete using(is_admin());
+-- Admin-configurable pricing & free AI allowance before Premium
+alter table if exists public.profiles add column if not exists ai_uses int default 0;
+create table if not exists public.app_settings(id int primary key default 1 check(id=1),price_ghs numeric(10,2) not null default 30,free_ai_limit int not null default 5,updated_at timestamptz default now());
+insert into public.app_settings(id,price_ghs,free_ai_limit) values(1,30,5) on conflict (id) do nothing;
+alter table public.app_settings enable row level security;
+drop policy if exists "settings public read" on public.app_settings;
+create policy "settings public read" on public.app_settings for select using(true);
+drop policy if exists "settings admin insert" on public.app_settings;
+create policy "settings admin insert" on public.app_settings for insert with check(is_admin() and price_ghs>0 and free_ai_limit>=0);
+drop policy if exists "settings admin update" on public.app_settings;
+create policy "settings admin update" on public.app_settings for update using(is_admin()) with check(is_admin() and price_ghs>0 and free_ai_limit>=0);
+
+create or replace function public.consume_free_ai() returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  uid uuid := auth.uid();
+  lim int := 5;
+  used int := 0;
+  prem timestamptz;
+begin
+  if uid is null then raise exception 'Sign in first'; end if;
+  select coalesce(free_ai_limit, 5) into lim from public.app_settings where id=1;
+  lim := coalesce(lim, 5);
+  if public.is_admin() then
+    return jsonb_build_object('allowed', true, 'unlimited', true, 'remaining', 9999, 'limit', lim);
+  end if;
+  select premium_until, coalesce(ai_uses, 0) into prem, used from public.profiles where id=uid for update;
+  used := coalesce(used, 0);
+  if prem is not null and prem > now() then
+    return jsonb_build_object('allowed', true, 'unlimited', true, 'remaining', 9999, 'limit', lim);
+  end if;
+  if used >= lim then
+    return jsonb_build_object('allowed', false, 'unlimited', false, 'remaining', 0, 'limit', lim);
+  end if;
+  update public.profiles set ai_uses = used + 1 where id=uid;
+  return jsonb_build_object('allowed', true, 'unlimited', false, 'remaining', greatest(lim - (used + 1), 0), 'limit', lim);
+end $$;
 -- MAKE AN ADMIN (run in SQL editor with the user's id from Authentication > Users):
 -- insert into admins(user_id) values('PASTE-USER-UUID') on conflict (user_id) do nothing;

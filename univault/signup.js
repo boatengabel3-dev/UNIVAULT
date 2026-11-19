@@ -1,6 +1,19 @@
 let mode = "up";
 
+function getSafeNextUrl() {
+  try {
+    const raw = new URLSearchParams(location.search).get("next") || "";
+    const trimmed = raw.trim();
+    if (!trimmed) return "";
+    if (/^(?:\/(?!\/)|app\.html(?:\?|#|$))/.test(trimmed)) {
+      return trimmed;
+    }
+  } catch {}
+  return "";
+}
+
 async function redirectAfterAuth(userId) {
+  const nextUrl = getSafeNextUrl();
   const go = (dest, label) => {
     if (typeof uvTransition !== "undefined") {
       uvTransition.go(dest, label);
@@ -8,16 +21,19 @@ async function redirectAfterAuth(userId) {
       location.replace(dest);
     }
   };
-  if (!userId) return go("app.html", "Opening UniVault...");
+  if (!userId) return go(nextUrl || "app.html", "Opening UniVault...");
   try {
     const { data: adm } = await sb
       .from("admins")
       .select("user_id")
       .eq("user_id", userId)
       .maybeSingle();
-    go(adm ? "admin.html" : "app.html", adm ? "Opening Admin Console..." : "Opening UniVault...");
+    if (nextUrl && !adm) {
+      return go(nextUrl, "Opening shared past paper...");
+    }
+    go(adm ? "admin.html" : (nextUrl || "app.html"), adm ? "Opening Admin Console..." : "Opening UniVault...");
   } catch {
-    go("app.html", "Opening UniVault...");
+    go(nextUrl || "app.html", "Opening UniVault...");
   }
 }
 

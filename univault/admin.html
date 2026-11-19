@@ -25,6 +25,17 @@
   </div>
 
   <section id="av-overview">
+    <div class="glass" style="margin-bottom:24px">
+      <div class="dash-head" style="margin:0 0 12px">
+        <h2>Pricing &amp; Free AI Trial Settings</h2>
+        <span id="settingsMsg" style="font-size:.9rem;color:var(--c)"></span>
+      </div>
+      <form id="settingsForm" class="two-col" style="align-items:end">
+        <label style="display:grid;gap:6px;font-size:.9rem;color:var(--mut)">Subscription Price (GH₵ / 30 days)<input id="setPriceGhs" type="number" min="1" step="0.5" value="30" required></label>
+        <label style="display:grid;gap:6px;font-size:.9rem;color:var(--mut)">Free AI Uses Before Premium<input id="setFreeAiLimit" type="number" min="0" max="500" step="1" value="5" required></label>
+        <button id="saveSettingsBtn" type="submit">Save Pricing &amp; Trial</button>
+      </form>
+    </div>
     <div class="two-col">
       <div>
         <div class="dash-head">
@@ -50,7 +61,14 @@
   <section id="av-publish" hidden>
     <div class="dash-head"><h2>Upload &amp; Publish Question</h2></div>
     <form id="adminUploadForm" class="glass form">
-      <p style="color:var(--mut);font-size:.92rem">Questions published here are immediately marked approved and visible in the KNUST course archive.</p>
+      <p style="color:var(--mut);font-size:.92rem">Upload a past question, lecture file, or photo (PDF, Image, DOCX, PPT, MP3, or MP4) to extract or transcribe with client-side OCR + Gemini AI, or type directly below. Published papers are immediately approved and checked for duplicates.</p>
+      <label class="upload-drop" for="adminUploadFile">
+        <input id="adminUploadFile" type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.mp3,.wav,.m4a,.aac,.ogg,.mp4,.webm,.mov,.txt,.png,.jpg,.jpeg,.webp" hidden>
+        <strong>Choose PDF, Image, DOCX, PPT, MP3, or MP4</strong>
+        <span id="adminFileStatus">Client-side PDF &amp; Image OCR + Gemini AI extraction &amp; duplicate normalization check.</span>
+        <div id="adminUploadPreview" class="upload-preview" hidden></div>
+      </label>
+      <div id="adminDupAlert" class="dup-banner" hidden role="alert"></div>
       <div class="two-col">
         <input id="ad" placeholder="Department (e.g. Computer Science)" required>
         <input id="ac" placeholder="Course code (e.g. CSM 251)" required>
@@ -63,11 +81,22 @@
         </div>
       </div>
       <input id="adescr" placeholder="Description / topic summary (e.g. End-of-semester paper covering trees, graphs, and sorting)">
-      <textarea id="ab" placeholder="Type or paste the full examination question paper text..." required style="min-height:180px"></textarea>
+      <textarea id="ab" placeholder="Extracted transcript / OCR text or full examination question paper text..." required style="min-height:180px"></textarea>
+      <div id="adminExplainBar" class="attach-bar" hidden>
+        <div class="attach-meta">
+          <strong id="adminAttachName">Extracted material</strong>
+          <small id="adminAttachSummary"></small>
+        </div>
+        <div class="attach-actions">
+          <select id="adminDetectedQ" hidden aria-label="Select a detected question to explain"></select>
+        </div>
+      </div>
       <div class="bar">
         <button id="apub" type="submit">Publish Question</button>
+        <button id="adminExplainBtn" type="button" class="ghost">Explain Question with Gemini AI</button>
         <span id="amsg" style="align-self:center;font-size:.9rem;color:var(--c)"></span>
       </div>
+      <div id="adminExplainOut" class="glass" hidden style="white-space:pre-wrap;font-size:.94rem;line-height:1.6"></div>
     </form>
   </section>
 
@@ -85,4 +114,4 @@
     <div id="poHistory" class="row-list"></div>
   </section>
 </main>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" crossorigin="anonymous"></script><script src="config.js"></script><script src="admin.js"></script></body></html>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" crossorigin="anonymous"></script><script src="config.js"></script><script src="ocr-reader.js"></script><script src="admin.js"></script></body></html>
