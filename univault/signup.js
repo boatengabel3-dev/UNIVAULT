@@ -208,8 +208,8 @@ if ($("#resendVerifyBtn")) {
 if ($("#forgotPw")) {
   $("#forgotPw").onclick = async () => {
     const email = $("#em").value.trim().toLowerCase();
-    if (!email) {
-      setMsg("Enter your email address above first, then tap Forgot password.");
+    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setMsg("Enter a valid email address above first, then tap Forgot password.");
       $("#em").focus();
       return;
     }
@@ -224,10 +224,16 @@ if ($("#forgotPw")) {
         redirectTo: `${location.origin}/signup.html?type=recovery`,
       });
       if (error) {
-        setMsg(error.message);
+        if (/rate limit/i.test(error.message)) {
+          setMsg("Too many reset emails requested recently. Wait an hour or configure Custom SMTP in Supabase.");
+        } else if (/error sending recovery email/i.test(error.message)) {
+          setMsg("Supabase failed to send the recovery email. Reset your Reset Password email template to default or configure Custom SMTP in Supabase (built-in email is limited to 2/hour).");
+        } else {
+          setMsg(error.message);
+        }
       } else {
         setMsg(
-          `Password reset email sent to ${email}. Check Inbox/Spam and open the link on this site.`,
+          `Password reset email sent to ${email}. Check Inbox and Spam, then open the link on this site.`,
           true
         );
       }
