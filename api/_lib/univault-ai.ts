@@ -1,4 +1,4 @@
-import { GoogleGenAI, Type } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel, Type } from '@google/genai';
 import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -14,6 +14,401 @@ export function createGeminiClient(apiKey: string): GoogleGenAI {
       },
     },
   });
+}
+
+function extractGeminiText(response: unknown): string {
+  const resp = response as {
+    text?: string;
+    promptFeedback?: { blockReason?: string; blockReasonMessage?: string };
+    candidates?: Array<{
+      finishReason?: string;
+      finishMessage?: string;
+      content?: { parts?: Array<{ text?: string; thought?: boolean }> };
+    }>;
+  } | null;
+
+  const direct = typeof resp?.text === 'string' ? resp.text.trim() : '';
+  if (direct) return direct;
+
+  const parts = resp?.candidates?.[0]?.content?.parts;
+  if (Array.isArray(parts)) {
+    const joined = parts
+      .filter((p) => p && !p.thought && typeof p.text === 'string')
+      .map((p) => p.text)
+      .join('')
+      .trim();
+    if (joined) return joined;
+  }
+
+  const blockReason = resp?.promptFeedback?.blockReason;
+  if (blockReason) {
+    throw new Error(
+      resp?.promptFeedback?.blockReasonMessage ||
+        `Gemini blocked this request (${blockReason}). Try rephrasing your question.`
+    );
+  }
+
+  const finishReason = resp?.candidates?.[0]?.finishReason;
+  if (finishReason && finishReason !== 'STOP') {
+    throw new Error(
+      resp?.candidates?.[0]?.finishMessage ||
+        `Gemini stopped before generating a reply (${finishReason}). Please try again.`
+    );
+  }
+
+  throw new Error('Gemini returned an empty response. Please try again.');
+}
+
+function normalizeChatMessages(
+  messages: unknown
+): Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }> {
+  const raw = Array.isArray(messages) ? messages : [];
+  const cleaned: Array<{ role: 'user' | 'model'; text: string }> = [];
+
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const msg = item as { role?: unknown; content?: unknown };
+    if (typeof msg.content !== 'string' || !msg.content.trim()) continue;
+    const role: 'user' | 'model' = msg.role === 'assistant' || msg.role === 'model' ? 'model' : 'user';
+    const text = msg.content.trim();
+    const prev = cleaned[cleaned.length - 1];
+    if (prev && prev.role === role) {
+      prev.text += `\n\n${text}`;
+    } else {
+      cleaned.push({ role, text });
+    }
+  }
+
+  if (cleaned.length > 14) {
+    cleaned.splice(0, cleaned.length - 14);
+  }
+
+  while (cleaned.length > 0 && cleaned[0].role === 'model') {
+    cleaned.shift();
+  }
+
+  if (cleaned.length === 0) {
+    return [{ role: 'user', parts: [{ text: 'Hello' }] }];
+  }
+
+  return cleaned.map((m) => ({
+    role: m.role,
+    parts: [{ text: m.text }],
+  }));
+}
+
+async function callGeminiWithRetry<T>(fn: () => Promise<T>): Promise<T> {
+  const delays = [500, 1200];
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const status =
+        err && typeof err === 'object' && 'status' in err && typeof err.status === 'number'
+          ? err.status
+          : 0;
+      const msg = err instanceof Error ? err.message : String(err || '');
+      const isTransient =
+        status === 429 ||
+        status === 500 ||
+        status === 502 ||
+        status === 503 ||
+        status === 504 ||
+        /ECONNRESET|ETIMEDOUT|fetch failed|network|unavailable/i.test(msg);
+      if (!isTransient || attempt === delays.length) {
+        throw err;
+      }
+      await new Promise((r) => setTimeout(r, delays[attempt]));
+    }
+  }
+  throw lastErr;
+}
+
+export interface AiChatInput {
+  apiKey: string;
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+  token: string;
+  userId: string;
+  mode?: string;
+  course?: string;
+  messages?: unknown;
+  count?: number;
+  instructions?: string;
+  attachmentContext?: string;
+  targetQuestion?: string;
+}
+
+export interface PreparedAiChat {
+  ai: GoogleGenAI;
+  mode: string;
+  count: number;
+  instructions: string;
+  targetQuestion: string;
+  systemInstruction: string;
+  contents: Array<{ role: 'user' | 'model'; parts: Array<{ text: string }> }>;
+  freeRemaining: number | null;
+  freeLimit: number;
+}
+
+async function fetchCourseBank(opts: {
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+  token: string;
+  course: string;
+}): Promise<string> {
+  if (!opts.course) return '';
+  try {
+    const qRes = await fetch(
+      `${opts.supabaseUrl}/rest/v1/questions?course_code=eq.${encodeURIComponent(opts.course)}&status=eq.approved&select=year,semester,question_content(content)&order=year.desc&limit=8`,
+      {
+        headers: {
+          apikey: opts.supabaseAnonKey,
+          Authorization: `Bearer ${opts.token}`,
+        },
+      }
+    );
+    if (!qRes.ok) return '';
+    const parsed = (await qRes.json()) as Array<{
+      year?: number;
+      semester?: number;
+      question_content?: { content?: string } | Array<{ content?: string }> | null;
+    }>;
+    if (!Array.isArray(parsed)) return '';
+    return parsed
+      .map((q) => {
+        const qc = Array.isArray(q.question_content)
+          ? q.question_content[0]?.content
+          : q.question_content?.content;
+        return qc ? `[${q.year} S${q.semester ?? '-'}]\n${qc}` : '';
+      })
+      .filter(Boolean)
+      .join('\n\n')
+      .slice(0, 16000);
+  } catch {
+    return '';
+  }
+}
+
+export async function prepareAiChat(opts: AiChatInput): Promise<PreparedAiChat> {
+  const mode = String(opts.mode || 'chat');
+  const course = String(opts.course || '').trim();
+  const count = Math.min(20, Math.max(1, Number(opts.count) || 5));
+  const instructions = String(opts.instructions || '').trim();
+  const cleanAttachment = String(opts.attachmentContext || '').trim().slice(0, 36000);
+  const targetQuestion = String(opts.targetQuestion || '').trim();
+
+  const [quota, bank] = await Promise.all([
+    checkAndConsumeAiQuota({
+      supabaseUrl: opts.supabaseUrl,
+      supabaseAnonKey: opts.supabaseAnonKey,
+      token: opts.token,
+      userId: opts.userId,
+    }),
+    fetchCourseBank({
+      supabaseUrl: opts.supabaseUrl,
+      supabaseAnonKey: opts.supabaseAnonKey,
+      token: opts.token,
+      course,
+    }),
+  ]);
+
+  if (!quota.allowed) {
+    throw Object.assign(
+      new Error(quota.error || 'Free AI trial limit reached. Upgrade to Premium to continue.'),
+      {
+        status: 402,
+        freeRemaining: 0,
+        freeLimit: quota.freeLimit,
+      }
+    );
+  }
+
+  const ai = createGeminiClient(opts.apiKey);
+  const attachedBlock = cleanAttachment
+    ? `\n\nUser-uploaded study material / transcript:\n${cleanAttachment}\n`
+    : '';
+
+  let systemInstruction = `You are a KNUST exam tutor.${course ? ` Selected course: ${course}.` : ''}${bank ? `\nPast questions on file:\n\n${bank}` : ''}${attachedBlock}\n`;
+
+  if (mode === 'quiz') {
+    systemInstruction += `Write ${count} multiple-choice questions in the style of these materials. Extra instructions: ${instructions || 'none'}.`;
+  } else if (mode === 'explain') {
+    systemInstruction +=
+      'Provide a thorough, detailed academic explanation. Structure your answer clearly with: (1) Core Concept & Definitions, (2) Step-by-Step Solution / Working with clear formulas and units, (3) Why each step works, and (4) Examiner Tips & Common Mistakes to avoid.';
+  } else {
+    systemInstruction +=
+      'Solve questions step by step with clear working, and provide deep explanations whenever asked about a specific question or uploaded document/recording. When asked to predict, analyse repeated topics, question formats, mark weighting and lecturer habits across years, and say which topics are most likely; label predictions as estimates, never guarantees.';
+  }
+
+  return {
+    ai,
+    mode,
+    count,
+    instructions,
+    targetQuestion,
+    systemInstruction,
+    contents: normalizeChatMessages(opts.messages),
+    freeRemaining: quota.freeRemaining,
+    freeLimit: quota.freeLimit,
+  };
+}
+
+export async function runAiChat(opts: AiChatInput): Promise<{
+  text: string;
+  freeRemaining: number | null;
+  freeLimit: number;
+}> {
+  const prep = await prepareAiChat(opts);
+
+  if (prep.mode === 'quiz') {
+    const response = await callGeminiWithRetry(() =>
+      prep.ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: `Generate ${prep.count} multiple-choice questions.`,
+        config: {
+          systemInstruction: prep.systemInstruction,
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          responseMimeType: 'application/json',
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                q: { type: Type.STRING },
+                options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                answer: { type: Type.INTEGER },
+                explain: { type: Type.STRING },
+              },
+              required: ['q', 'options', 'answer', 'explain'],
+            },
+          },
+        },
+      })
+    );
+    return {
+      text: extractGeminiText(response),
+      freeRemaining: prep.freeRemaining,
+      freeLimit: prep.freeLimit,
+    };
+  }
+
+  if (prep.mode === 'explain') {
+    const prompt = prep.targetQuestion
+      ? `Give a detailed explanation for this specific question or topic:\n\n${prep.targetQuestion}`
+      : 'Provide a detailed, step-by-step explanation covering the key questions and concepts in the provided material.';
+    const response = await callGeminiWithRetry(() =>
+      prep.ai.models.generateContent({
+        model: 'gemini-4-hydrogen',
+        contents: prompt,
+        config: {
+          systemInstruction: prep.systemInstruction,
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+        },
+      })
+    );
+    return {
+      text: extractGeminiText(response),
+      freeRemaining: prep.freeRemaining,
+      freeLimit: prep.freeLimit,
+    };
+  }
+
+  const response = await callGeminiWithRetry(() =>
+    prep.ai.models.generateContent({
+      model: 'gemini-4-hydrogen',
+      contents: prep.contents,
+      config: {
+        systemInstruction: prep.systemInstruction,
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+      },
+    })
+  );
+
+  return {
+    text: extractGeminiText(response),
+    freeRemaining: prep.freeRemaining,
+    freeLimit: prep.freeLimit,
+  };
+}
+
+export type AiChatStreamEvent =
+  | { type: 'meta'; freeRemaining: number | null; freeLimit: number }
+  | { type: 'delta'; delta: string }
+  | { type: 'done'; text: string; freeRemaining: number | null; freeLimit: number };
+
+export async function* streamAiChat(
+  prep: PreparedAiChat,
+  isAborted?: () => boolean
+): AsyncGenerator<AiChatStreamEvent> {
+  yield {
+    type: 'meta',
+    freeRemaining: prep.freeRemaining,
+    freeLimit: prep.freeLimit,
+  };
+
+  const contents =
+    prep.mode === 'explain'
+      ? prep.targetQuestion
+        ? `Give a detailed explanation for this specific question or topic:\n\n${prep.targetQuestion}`
+        : 'Provide a detailed, step-by-step explanation covering the key questions and concepts in the provided material.'
+      : prep.contents;
+
+  const stream = await callGeminiWithRetry(() =>
+    prep.ai.models.generateContentStream({
+      model: 'gemini-4-hydrogen',
+      contents,
+      config: {
+        systemInstruction: prep.systemInstruction,
+        thinkingConfig: {
+          thinkingLevel: prep.mode === 'explain' ? ThinkingLevel.MEDIUM : ThinkingLevel.LOW,
+        },
+      },
+    })
+  );
+
+  let fullText = '';
+  let lastFinishReason = '';
+  let blockReason = '';
+
+  for await (const chunk of stream) {
+    if (isAborted?.()) return;
+    const c = chunk as {
+      text?: string;
+      promptFeedback?: { blockReason?: string; blockReasonMessage?: string };
+      candidates?: Array<{ finishReason?: string }>;
+    };
+    if (c?.promptFeedback?.blockReason) {
+      blockReason = c.promptFeedback.blockReasonMessage || c.promptFeedback.blockReason;
+    }
+    if (c?.candidates?.[0]?.finishReason) {
+      lastFinishReason = c.candidates[0].finishReason;
+    }
+    const piece = typeof c?.text === 'string' ? c.text : '';
+    if (piece) {
+      fullText += piece;
+      yield { type: 'delta', delta: piece };
+    }
+  }
+
+  if (!fullText.trim()) {
+    if (blockReason) {
+      throw new Error(`Gemini blocked this request (${blockReason}). Try rephrasing your question.`);
+    }
+    if (lastFinishReason && lastFinishReason !== 'STOP') {
+      throw new Error(`Gemini stopped before generating a reply (${lastFinishReason}). Please try again.`);
+    }
+    throw new Error('Gemini returned an empty response. Please try again.');
+  }
+
+  yield {
+    type: 'done',
+    text: fullText.trim(),
+    freeRemaining: prep.freeRemaining,
+    freeLimit: prep.freeLimit,
+  };
 }
 
 const memoryFreeAiUsage = new Map<string, number>();

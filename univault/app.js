@@ -44,6 +44,12 @@ function show(v, skipTransition = false) {
       if (active && $("#activeViewLabel")) $("#activeViewLabel").textContent = b.textContent;
     });
     syncUrlParams({ view: v === "browse" ? null : v, ...(v !== "browse" ? { paper: null } : {}) });
+    if (v === "chat" && $("#log") && $("#log").children.length === 0) {
+      bub(
+        "AI Tutor is ready. Ask any KNUST exam question, pick a course above to use its past papers, click Predict lecturer's style, or upload a PDF/image/audio/video.",
+        "a"
+      );
+    }
     window.uvRevealObserve?.(targetSection);
   };
 
@@ -318,7 +324,13 @@ async function load() {
   if (initQ && !$("#search").value) $("#search").value = initQ;
   document
     .querySelectorAll(".courses")
-    .forEach((s) => (s.innerHTML = codes.map((c) => `<option>${esc(c)}</option>`).join("")));
+    .forEach((s) => {
+      const opts = codes.map((c) => `<option>${esc(c)}</option>`).join("");
+      s.innerHTML =
+        s.id === "chatCourse"
+          ? opts + '<option value="">General (any course)</option>'
+          : opts || '<option value="">General (any course)</option>';
+    });
   render(false);
 }
 
@@ -588,7 +600,34 @@ function setActiveAttachment(data) {
   }
 }
 
-async function ai(body) {
+function setAiBusy(busy) {
+  ["#send", "#predict", "#explainBtn", "#explainAttachedBtn"].forEach((sel) => {
+    const el = $(sel);
+    if (el) el.disabled = Boolean(busy);
+  });
+}
+
+async function getValidAccessToken(forceRefresh = false) {
+  if (forceRefresh && sb?.auth?.refreshSession) {
+    try {
+      const { data } = await sb.auth.refreshSession();
+      if (data?.session?.access_token) return data.session.access_token;
+    } catch {}
+  }
+  const {
+    data: { session },
+  } = await sb.auth.getSession();
+  if (session?.access_token) return session.access_token;
+  if (sb?.auth?.refreshSession) {
+    try {
+      const { data } = await sb.auth.refreshSession();
+      if (data?.session?.access_token) return data.session.access_token;
+    } catch {}
+  }
+  return "";
+}
+
+async function ai(body, onChunk) {
   if (!isValidSupabaseUrl) {
     throw new Error("Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.");
   }
@@ -603,62 +642,176 @@ async function ai(body) {
     }
   };
 
-  // Always call /api/ai-chat directly when attachmentContext or explain mode is used, or fallback automatically
-  const hasRichPayload = Boolean(body.attachmentContext) || body.mode === "explain";
-  let m = "Edge Function request failed.";
+  let token = await getValidAccessToken(false);
+  if (!token) {
+    throw new Error("Please sign in first.");
+  }
 
-  if (!hasRichPayload) {
+  const wantsStream = typeof onChunk === "function" && body.mode !== "quiz";
+
+  const callLocalApi = async (accessToken, ctrl) =>
+    fetch("/api/ai-chat", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: wantsStream ? "text/event-stream, application/json" : "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify(wantsStream ? { ...body, stream: true } : body),
+      signal: ctrl?.signal,
+    });
+
+  let apiError = "";
+  let shouldTryEdgeFallback = false;
+  let gotServerResponse = false;
+
+  const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+  let timer = ctrl ? setTimeout(() => ctrl.abort(), 35000) : null;
+  const resetTimer = (ms = 35000) => {
+    if (!ctrl) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => ctrl.abort(), ms);
+  };
+
+  try {
+    let apiRes = await callLocalApi(token, ctrl);
+    if (apiRes.status === 401) {
+      const refreshedToken = await getValidAccessToken(true);
+      if (refreshedToken && refreshedToken !== token) {
+        token = refreshedToken;
+        resetTimer(35000);
+        apiRes = await callLocalApi(token, ctrl);
+      }
+    }
+
+    const contentType = apiRes.headers.get("content-type") || "";
+    if (contentType.includes("text/event-stream") && apiRes.body?.getReader) {
+      gotServerResponse = true;
+      const reader = apiRes.body.getReader();
+      const decoder = new TextDecoder("utf-8");
+      let sseBuffer = "";
+      let accumulated = "";
+      let finalText = "";
+
+      const handleLine = (rawLine) => {
+        const line = rawLine.trim();
+        if (!line.startsWith("data:")) return;
+        const payloadText = line.slice(5).trim();
+        if (!payloadText) return;
+        let ev;
+        try {
+          ev = JSON.parse(payloadText);
+        } catch {
+          return;
+        }
+        if (ev.error) {
+          const err = new Error(ev.error);
+          if (typeof ev.status === "number") err.status = ev.status;
+          throw err;
+        }
+        if (ev.type === "meta") {
+          syncQuotaFromResponse(ev);
+          return;
+        }
+        if (ev.type === "delta" && typeof ev.delta === "string") {
+          accumulated += ev.delta;
+          onChunk(accumulated);
+          return;
+        }
+        if (ev.type === "done") {
+          syncQuotaFromResponse(ev);
+          if (typeof ev.text === "string" && ev.text) {
+            finalText = ev.text;
+          }
+        }
+      };
+
+      while (true) {
+        resetTimer(35000);
+        const { value, done } = await reader.read();
+        if (done) break;
+        sseBuffer += decoder.decode(value, { stream: true });
+        const lines = sseBuffer.split(/\r?\n/);
+        sseBuffer = lines.pop() ?? "";
+        for (const line of lines) {
+          handleLine(line);
+        }
+      }
+      sseBuffer += decoder.decode();
+      if (sseBuffer.trim()) {
+        for (const line of sseBuffer.split(/\r?\n/)) {
+          handleLine(line);
+        }
+      }
+
+      const resolved = (finalText || accumulated).trim();
+      if (!resolved) {
+        throw new Error("No response returned from AI Tutor. Please try again.");
+      }
+      return resolved;
+    }
+
+    if (contentType.includes("application/json")) {
+      gotServerResponse = true;
+      const apiData = await apiRes.json();
+      syncQuotaFromResponse(apiData);
+      if (apiRes.ok) {
+        return apiData.text;
+      }
+      apiError = apiData?.error || `AI request failed (${apiRes.status}).`;
+      const err = new Error(apiError);
+      err.status = apiRes.status;
+      throw err;
+    }
+
+    if (apiRes.status === 404 || apiRes.status === 405) {
+      shouldTryEdgeFallback = true;
+      apiError = `AI route returned ${apiRes.status}.`;
+    } else {
+      gotServerResponse = true;
+      const rawText = (await apiRes.text().catch(() => "")).replace(/<[^>]+>/g, " ").trim();
+      throw new Error(
+        rawText ? `AI server error (${apiRes.status}): ${rawText.slice(0, 140)}` : `AI server error (${apiRes.status}).`
+      );
+    }
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      throw new Error("AI Tutor timed out while waiting for a response. Please try again.");
+    }
+    if (!shouldTryEdgeFallback) {
+      if (gotServerResponse || typeof err?.status === "number" || apiError) {
+        throw err;
+      }
+      // Network error reaching /api/ai-chat: try Supabase Edge Function as fallback
+      shouldTryEdgeFallback = true;
+      apiError = err?.message || "Could not reach /api/ai-chat.";
+    }
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+
+  const hasRichPayload = Boolean(body.attachmentContext) || body.mode === "explain";
+  if (shouldTryEdgeFallback && !hasRichPayload) {
     const { data, error } = await sb.functions.invoke("ai-chat", { body });
-    if (!error) {
+    if (!error && data?.text) {
       syncQuotaFromResponse(data);
       return data.text;
     }
-    m = error.message || m;
+    let edgeErr = error?.message || "";
     try {
-      const jsonErr = await error.context?.json?.();
+      const jsonErr = await error?.context?.json?.();
       syncQuotaFromResponse(jsonErr);
-      if (jsonErr?.error) m = jsonErr.error;
+      if (jsonErr?.error) edgeErr = jsonErr.error;
     } catch {}
+    if (/premium|trial limit/i.test(edgeErr)) {
+      const err = new Error(edgeErr);
+      err.status = 402;
+      throw err;
+    }
+    throw new Error(apiError || edgeErr || "Could not reach AI Tutor service.");
   }
 
-  if (hasRichPayload || !/sign in|premium|trial limit/i.test(m)) {
-    try {
-      const {
-        data: { session },
-      } = await sb.auth.getSession();
-      const apiRes = await fetch("/api/ai-chat", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(session?.access_token
-            ? { Authorization: `Bearer ${session.access_token}` }
-            : {}),
-        },
-        body: JSON.stringify(body),
-      });
-      const contentType = apiRes.headers.get("content-type") || "";
-      if (contentType.includes("application/json")) {
-        const apiData = await apiRes.json();
-        syncQuotaFromResponse(apiData);
-        if (apiRes.ok) return apiData.text;
-        m = apiData.error || m;
-        if (/premium|trial limit/i.test(m)) show("pricing");
-        throw new Error(m);
-      }
-    } catch (fallbackErr) {
-      if (fallbackErr instanceof Error && fallbackErr.message !== m) {
-        if (/premium|trial limit/i.test(fallbackErr.message)) show("pricing");
-        throw fallbackErr;
-      }
-    }
-    if (/Failed to send a request to the Edge Function/i.test(m)) {
-      m =
-        "Could not reach the ai-chat Edge Function or /api/ai-chat. Check SUPABASE_URL, SUPABASE_ANON_KEY, and GEMINI_API_KEY.";
-    }
-  }
-
-  if (/premium|trial limit/i.test(m)) show("pricing");
-  throw new Error(m);
+  throw new Error(apiError || "Could not reach AI Tutor service.");
 }
 
 function bub(t, c) {
@@ -668,6 +821,22 @@ function bub(t, c) {
   $("#log").append(d);
   $("#log").scrollTop = 1e9;
   return d;
+}
+
+function showAiErrorInBubble(bubbleEl, err) {
+  const msg = err?.message || "Could not get a response from AI Tutor.";
+  bubbleEl.textContent = msg;
+  if (err?.status === 402 || /premium|trial limit/i.test(msg)) {
+    const wrap = document.createElement("div");
+    wrap.style.marginTop = "10px";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "Upgrade to Premium";
+    btn.onclick = () => show("pricing");
+    wrap.append(btn);
+    bubbleEl.append(wrap);
+  }
+  $("#log").scrollTop = 1e9;
 }
 
 function buildAttachmentContext() {
@@ -683,49 +852,82 @@ function buildAttachmentContext() {
 }
 
 async function ask(text) {
+  if ($("#send")?.disabled) return;
   bub(text, "u");
   hist.push({ role: "user", content: text });
   const w = bub("Thinking...", "a");
-  if ($("#send")) $("#send").disabled = true;
+  setAiBusy(true);
   try {
-    const r = await ai({
-      mode: "chat",
-      course: $("#chatCourse").value,
-      messages: hist,
-      attachmentContext: buildAttachmentContext(),
-    });
-    w.textContent = r || "No response returned.";
-    hist.push({ role: "assistant", content: r });
+    const r = await ai(
+      {
+        mode: "chat",
+        course: $("#chatCourse")?.value || "",
+        messages: hist,
+        attachmentContext: buildAttachmentContext(),
+      },
+      (partial) => {
+        if (!partial) return;
+        w.textContent = partial;
+        const logEl = $("#log");
+        if (logEl) logEl.scrollTop = logEl.scrollHeight;
+      }
+    );
+    const clean = String(r || "").trim();
+    if (!clean) {
+      w.textContent = "No response returned. Please try again.";
+      hist.pop();
+      return;
+    }
+    w.textContent = clean;
+    hist.push({ role: "assistant", content: clean });
+    const logEl = $("#log");
+    if (logEl) logEl.scrollTop = logEl.scrollHeight;
   } catch (e) {
-    w.textContent = e.message;
+    showAiErrorInBubble(w, e);
     hist.pop();
   } finally {
-    if ($("#send")) $("#send").disabled = false;
+    setAiBusy(false);
   }
 }
 
 async function requestDetailedExplanation(targetQuestion, inlineContext = "") {
+  if ($("#send")?.disabled) return;
   const userLabel = targetQuestion
     ? `Detailed explanation requested:\n${targetQuestion}`
     : "Provide a detailed explanation of the uploaded material.";
   bub(userLabel, "u");
   const w = bub("Preparing detailed explanation...", "a");
-  if ($("#send")) $("#send").disabled = true;
+  setAiBusy(true);
   try {
     const context = inlineContext || buildAttachmentContext();
-    const r = await ai({
-      mode: "explain",
-      course: $("#chatCourse").value,
-      targetQuestion,
-      attachmentContext: context,
-    });
-    w.textContent = r || "No explanation returned.";
+    const r = await ai(
+      {
+        mode: "explain",
+        course: $("#chatCourse")?.value || "",
+        targetQuestion,
+        attachmentContext: context,
+      },
+      (partial) => {
+        if (!partial) return;
+        w.textContent = partial;
+        const logEl = $("#log");
+        if (logEl) logEl.scrollTop = logEl.scrollHeight;
+      }
+    );
+    const clean = String(r || "").trim();
+    if (!clean) {
+      w.textContent = "No explanation returned. Please try again.";
+      return;
+    }
+    w.textContent = clean;
     hist.push({ role: "user", content: userLabel });
-    hist.push({ role: "assistant", content: r || "" });
+    hist.push({ role: "assistant", content: clean });
+    const logEl = $("#log");
+    if (logEl) logEl.scrollTop = logEl.scrollHeight;
   } catch (e) {
-    w.textContent = e.message;
+    showAiErrorInBubble(w, e);
   } finally {
-    if ($("#send")) $("#send").disabled = false;
+    setAiBusy(false);
   }
 }
 
@@ -873,7 +1075,11 @@ if ($("#micBtn")) {
 $("#send").onclick = () => {
   if (isVoiceRecording) stopVoiceInput();
   const t = $("#msg").value.trim();
-  if (t && !$("#send").disabled) {
+  if (!t) {
+    $("#msg").focus();
+    return;
+  }
+  if (!$("#send").disabled) {
     $("#msg").value = "";
     setMicStatus("");
     ask(t);

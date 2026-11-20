@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { GoogleGenAI, Type } from "npm:@google/genai";
+import { GoogleGenAI, Type } from "npm:@google/genai@^3.6.1";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -79,7 +79,13 @@ Deno.serve(async (req) => {
     }
 
     const bank = qs
-      .map((q) => `[${q.year} S${q.semester ?? "-"}]\n${q.question_content?.content ?? ""}`)
+      .map((q) => {
+        const qc = Array.isArray(q.question_content)
+          ? q.question_content[0]?.content
+          : q.question_content?.content;
+        return qc ? `[${q.year} S${q.semester ?? "-"}]\n${qc}` : "";
+      })
+      .filter(Boolean)
       .join("\n\n")
       .slice(0, 40000);
 
@@ -88,7 +94,10 @@ Deno.serve(async (req) => {
       : "";
 
     let systemInstruction = `You are a KNUST exam tutor.${course ? ` Selected course: ${course}.` : ""}${bank ? `\nPast questions on file:\n\n${bank}` : ""}${attachedBlock}\n`;
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({
+      apiKey,
+      httpOptions: { headers: { "User-Agent": "aistudio-build" } },
+    });
 
     if (mode === "quiz") {
       systemInstruction += `Write ${count} multiple-choice questions in the style of these materials. Extra instructions: ${instructions || "none"}.`;
@@ -140,16 +149,28 @@ Deno.serve(async (req) => {
 
     systemInstruction += `Solve questions step by step with clear working, and provide deep explanations whenever asked about a specific question or uploaded document/recording. When asked to predict, analyse repeated topics, question formats, mark weighting and lecturer habits across years, and say which topics are most likely; label predictions as estimates, never guarantees.`;
 
-    const contents = (Array.isArray(messages) ? messages : [])
-      .filter((m: any) => m && typeof m.content === "string" && m.content.trim())
-      .map((m: any) => ({
-        role: m.role === "assistant" ? "model" : "user",
-        parts: [{ text: m.content }],
-      }));
+    const cleaned: Array<{ role: "user" | "model"; text: string }> = [];
+    for (const item of Array.isArray(messages) ? messages : []) {
+      if (!item || typeof item.content !== "string" || !item.content.trim()) continue;
+      const role = item.role === "assistant" || item.role === "model" ? "model" : "user";
+      const text = item.content.trim();
+      const prev = cleaned[cleaned.length - 1];
+      if (prev && prev.role === role) {
+        prev.text += `\n\n${text}`;
+      } else {
+        cleaned.push({ role, text });
+      }
+    }
+    while (cleaned.length > 0 && cleaned[0].role === "model") {
+      cleaned.shift();
+    }
+    const contents = cleaned.length
+      ? cleaned.map((m) => ({ role: m.role, parts: [{ text: m.text }] }))
+      : [{ role: "user", parts: [{ text: "Hello" }] }];
 
     const response = await ai.models.generateContent({
       model: "gemini-4-hydrogen",
-      contents: contents.length ? contents : "Hello",
+      contents,
       config: { systemInstruction },
     });
 

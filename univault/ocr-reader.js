@@ -390,20 +390,32 @@
         : `Processing "${file.name}" with Gemini AI...`
     );
 
-    const res = await fetch("/api/ai-process-file", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${session.access_token}`,
-      },
-      body: JSON.stringify({
-        fileName: file.name,
-        mimeType,
-        dataBase64,
-        preprocessedText,
-        ocrUsed,
-      }),
-    });
+    const postProcessFile = async (accessToken) =>
+      fetch("/api/ai-process-file", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          fileName: file.name,
+          mimeType,
+          dataBase64,
+          preprocessedText,
+          ocrUsed,
+        }),
+      });
+
+    let res = await postProcessFile(session.access_token);
+    if (res.status === 401 && sb?.auth?.refreshSession) {
+      try {
+        const refreshed = await sb.auth.refreshSession();
+        const nextToken = refreshed?.data?.session?.access_token;
+        if (nextToken) {
+          res = await postProcessFile(nextToken);
+        }
+      } catch {}
+    }
 
     const ct = res.headers.get("content-type") || "";
     if (!ct.includes("application/json")) {

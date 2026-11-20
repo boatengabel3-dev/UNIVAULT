@@ -1,6 +1,5 @@
-import { Type } from '@google/genai';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { checkAndConsumeAiQuota, createGeminiClient } from './_lib/univault-ai.js';
+import { prepareAiChat, runAiChat, streamAiChat } from './_lib/univault-ai.js';
 
 type VercelRequest = IncomingMessage & {
   method?: string;
@@ -38,6 +37,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return;
   }
 
+  let headersSentForStream = false;
   try {
     const geminiKey = process.env.GEMINI_API_KEY?.trim();
     const supabaseUrl = process.env.SUPABASE_URL?.trim().replace(/\/$/, '');
@@ -74,126 +74,67 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const body = await readJsonBody(req);
     const mode = String(body.mode || 'chat');
-    const course = String(body.course || '');
-    const messages = Array.isArray(body.messages) ? body.messages : [];
-    const count = Number(body.count) || 5;
-    const instructions = String(body.instructions || '');
-    const attachmentContext = String(body.attachmentContext || '').trim().slice(0, 45000);
-    const targetQuestion = String(body.targetQuestion || '').trim();
-
-    const quota = await checkAndConsumeAiQuota({
+    const wantStream = Boolean(body.stream) && mode !== 'quiz';
+    const input = {
+      apiKey: geminiKey,
       supabaseUrl,
       supabaseAnonKey,
       token,
       userId: user.id,
-    });
-    if (!quota.allowed) {
-      res.status(402).json({
-        error: quota.error || 'Free AI trial limit reached. Upgrade to Premium to continue.',
-        freeRemaining: 0,
-        freeLimit: quota.freeLimit,
-      });
+      mode,
+      course: String(body.course || ''),
+      messages: body.messages,
+      count: Number(body.count) || 5,
+      instructions: String(body.instructions || ''),
+      attachmentContext: String(body.attachmentContext || ''),
+      targetQuestion: String(body.targetQuestion || ''),
+    };
+
+    if (!wantStream) {
+      const result = await runAiChat(input);
+      res.status(200).json(result);
       return;
     }
 
-    let qs: Array<{ year?: number; semester?: number; question_content?: { content?: string } }> = [];
-    if (course) {
-      const qRes = await fetch(
-        `${supabaseUrl}/rest/v1/questions?course_code=eq.${encodeURIComponent(course)}&status=eq.approved&select=year,semester,question_content(content)&order=year.desc&limit=15`,
-        { headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${token}` } }
-      );
-      if (qRes.ok) qs = (await qRes.json()) as typeof qs;
-    }
-
-    const bank = qs
-      .map((q) => `[${q.year} S${q.semester ?? '-'}]\n${q.question_content?.content ?? ''}`)
-      .join('\n\n')
-      .slice(0, 40000);
-
-    const ai = createGeminiClient(geminiKey);
-    const attachedBlock = attachmentContext
-      ? `\n\nUser-uploaded study material / transcript:\n${attachmentContext}\n`
-      : '';
-
-    let systemInstruction = `You are a KNUST exam tutor.${course ? ` Selected course: ${course}.` : ''}${bank ? `\nPast questions on file:\n\n${bank}` : ''}${attachedBlock}\n`;
-
-    if (mode === 'quiz') {
-      systemInstruction += `Write ${count} multiple-choice questions in the style of these materials. Extra instructions: ${instructions || 'none'}.`;
-      const response = await ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: `Generate ${count} multiple-choice questions.`,
-        config: {
-          systemInstruction,
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                q: { type: Type.STRING },
-                options: { type: Type.ARRAY, items: { type: Type.STRING } },
-                answer: { type: Type.INTEGER },
-                explain: { type: Type.STRING },
-              },
-              required: ['q', 'options', 'answer', 'explain'],
-            },
-          },
-        },
-      });
-      res.status(200).json({
-        text: (response.text ?? '[]').trim(),
-        freeRemaining: quota.freeRemaining,
-        freeLimit: quota.freeLimit,
-      });
-      return;
-    }
-
-    if (mode === 'explain') {
-      systemInstruction +=
-        'Provide a thorough, detailed academic explanation. Structure your answer clearly with: (1) Core Concept & Definitions, (2) Step-by-Step Solution / Working with clear formulas and units, (3) Why each step works, and (4) Examiner Tips & Common Mistakes to avoid.';
-      const prompt = targetQuestion
-        ? `Give a detailed explanation for this specific question or topic:\n\n${targetQuestion}`
-        : 'Provide a detailed, step-by-step explanation covering the key questions and concepts in the provided material.';
-      const response = await ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: prompt,
-        config: { systemInstruction },
-      });
-      res.status(200).json({
-        text: response.text ?? '',
-        freeRemaining: quota.freeRemaining,
-        freeLimit: quota.freeLimit,
-      });
-      return;
-    }
-
-    systemInstruction +=
-      'Solve questions step by step with clear working, and provide deep explanations whenever asked about a specific question or uploaded document/recording. When asked to predict, analyse repeated topics, question formats, mark weighting and lecturer habits across years, and say which topics are most likely; label predictions as estimates, never guarantees.';
-
-    const contents = messages
-      .filter(
-        (m): m is { role?: string; content: string } =>
-          Boolean(m && typeof m === 'object' && typeof (m as { content?: unknown }).content === 'string')
-      )
-      .filter((m) => m.content.trim().length > 0)
-      .map((m) => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }],
-      }));
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-4-hydrogen',
-      contents: contents.length ? contents : 'Hello',
-      config: { systemInstruction },
+    const prep = await prepareAiChat(input);
+    let closed = false;
+    req.on('close', () => {
+      closed = true;
     });
 
-    res.status(200).json({
-      text: response.text ?? '',
-      freeRemaining: quota.freeRemaining,
-      freeLimit: quota.freeLimit,
-    });
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders?.();
+    headersSentForStream = true;
+
+    for await (const ev of streamAiChat(prep, () => closed || res.writableEnded)) {
+      if (closed || res.writableEnded) break;
+      res.write(`data: ${JSON.stringify(ev)}\n\n`);
+    }
+    if (!res.writableEnded) {
+      res.end();
+    }
   } catch (err: unknown) {
+    const errObj = err && typeof err === 'object' ? (err as Record<string, unknown>) : {};
+    const status = typeof errObj.status === 'number' ? errObj.status : 500;
     const message = err instanceof Error ? err.message : 'AI service error';
-    res.status(500).json({ error: message });
+    if (status >= 500) {
+      console.error('[api/ai-chat]', message);
+    }
+    if (headersSentForStream || res.headersSent) {
+      if (!res.writableEnded) {
+        res.write(`data: ${JSON.stringify({ error: message, status })}\n\n`);
+        res.end();
+      }
+      return;
+    }
+    res.status(status).json({
+      error: message,
+      ...(typeof errObj.freeRemaining === 'number' ? { freeRemaining: errObj.freeRemaining } : {}),
+      ...(typeof errObj.freeLimit === 'number' ? { freeLimit: errObj.freeLimit } : {}),
+    });
   }
 }
