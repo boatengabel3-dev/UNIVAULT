@@ -11,10 +11,20 @@
 <div class="drawer-acct"><span>Account</span><small id="badge" class="acct-status"></small></div>
 <nav aria-label="Main navigation"><button data-v="browse" class="on">Questions</button><button data-v="dashboard">Dashboard</button><button data-v="chat">AI Tutor</button><button data-v="quiz">Quiz</button><button data-v="upload">Upload &amp; Earn</button><button data-v="wallet">Wallet</button><button data-v="pricing">Premium</button></nav>
 <div class="drawer-sep"></div>
-<div class="drawer-footer"><button id="out" type="button" class="ghost drawer-out">Sign out</button></div>
+<div class="drawer-footer"><button id="startTourBtn" type="button" class="ghost drawer-out">Website Tour</button><button id="out" type="button" class="ghost drawer-out">Sign out</button></div>
 </div>
 </header>
 <main>
+<div id="welcomeBanner" class="welcome-banner" hidden role="status">
+  <div class="welcome-banner-copy">
+    <strong id="welcomeBannerTitle">Welcome to UniVault!</strong>
+    <p id="welcomeBannerText">Take a quick tour to see how past questions, AI Tutor, uploads, and Mobile Money payouts work.</p>
+  </div>
+  <div class="welcome-banner-actions">
+    <button id="welcomeTourBtn" type="button">Take Guided Tour</button>
+    <button id="welcomeDismissBtn" type="button" class="ghost">Dismiss</button>
+  </div>
+</div>
 <section id="browse">
 <div class="home-hero">
 <div>
@@ -112,4 +122,4 @@
 <section id="pricing" hidden><h1>Go Premium</h1><div class="glass price"><h2 id="priceDisplay">GH₵ 30 <small>/ month</small></h2><p id="priceDesc">Read every past question and enjoy unlimited AI tutor, predictions and quizzes.</p><button id="pay">Pay with Paystack</button></div></section>
 </main>
 <dialog id="reader"><h3 id="rt"></h3><pre id="rb"></pre><div class="bar"><button id="solve">Solve with AI</button><button id="explainPaper" class="ghost">Detailed Explanation</button><button class="ghost" onclick="reader.close()">Close</button></div></dialog>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" crossorigin="anonymous"></script><script src="https://js.paystack.co/v1/inline.js" crossorigin="anonymous"></script><script src="config.js"></script><script src="ocr-reader.js"></script><script src="app.js"></script></body></html>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" crossorigin="anonymous"></script><script src="https://js.paystack.co/v1/inline.js" crossorigin="anonymous"></script><script src="config.js"></script><script src="ocr-reader.js"></script><script src="tour.js"></script><script src="app.js"></script></body></html>

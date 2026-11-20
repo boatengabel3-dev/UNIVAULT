@@ -14,7 +14,7 @@ create policy "own profile" on profiles for select using(auth.uid()=id or is_adm
 create policy "admin payments" on payments for select using(is_admin());
 create policy "own payouts" on payouts for select using(user_id=auth.uid() or is_admin());
 create policy "am i admin" on admins for select using(user_id=auth.uid());
-create or replace function public.new_profile() returns trigger language plpgsql security definer set search_path = public as $$ begin insert into public.profiles(id,full_name) values(new.id,new.raw_user_meta_data->>'full_name') on conflict (id) do nothing; return new; end $$;
+create or replace function public.new_profile() returns trigger language plpgsql security definer set search_path = public as $$ begin insert into public.profiles(id,full_name) values(new.id,coalesce(new.raw_user_meta_data->>'full_name', new.raw_user_meta_data->>'name')) on conflict (id) do nothing; return new; end $$;
 drop trigger if exists on_signup on auth.users;
 create trigger on_signup after insert on auth.users for each row execute function public.new_profile();
 

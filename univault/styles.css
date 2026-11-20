@@ -1463,6 +1463,178 @@ pre {
   50% { box-shadow: 0 0 0 6px rgba(248, 113, 113, 0); }
 }
 
+.welcome-banner {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px;
+  margin-bottom: 20px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, rgba(29, 78, 216, 0.28), rgba(12, 22, 40, 0.90));
+  border: 1px solid rgba(226, 184, 87, 0.45);
+  backdrop-filter: blur(16px);
+  box-shadow: 0 18px 36px -18px rgba(0, 0, 0, 0.65);
+}
+
+.welcome-banner[hidden] {
+  display: none;
+}
+
+.welcome-banner-copy strong {
+  display: block;
+  font-size: 1.12rem;
+  color: #fff;
+  margin-bottom: 3px;
+}
+
+.welcome-banner-copy p {
+  color: #dbe4f3;
+  font-size: 0.92rem;
+  max-width: 66ch;
+}
+
+.welcome-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.welcome-dialog {
+  width: min(500px, 92vw);
+  padding: 26px;
+}
+
+.welcome-dlg-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.welcome-dlg-head img {
+  width: 48px;
+  height: auto;
+  flex-shrink: 0;
+}
+
+.welcome-dlg-kicker {
+  color: var(--c);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 2px;
+}
+
+.welcome-dlg-head h2 {
+  font-size: 1.32rem;
+  color: #fff;
+  margin: 0;
+}
+
+.welcome-dlg-copy {
+  color: var(--mut);
+  font-size: 0.94rem;
+  line-height: 1.55;
+  margin-bottom: 14px;
+}
+
+.welcome-dlg-list {
+  display: grid;
+  gap: 10px;
+  padding-left: 18px;
+  margin-bottom: 20px;
+  color: #e5ebf5;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.welcome-dlg-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.uv-tour-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9990;
+  background: transparent;
+  backdrop-filter: none;
+}
+
+.uv-tour-spot {
+  position: fixed;
+  z-index: 9991;
+  border-radius: 14px;
+  border: 2.5px solid var(--c);
+  background: transparent;
+  box-shadow: 0 0 0 9999px rgba(4, 9, 18, 0.72), 0 0 0 5px rgba(226, 184, 87, 0.22), 0 0 28px rgba(226, 184, 87, 0.50);
+  pointer-events: none;
+  transition: top 0.22s ease, left 0.22s ease, width 0.22s ease, height 0.22s ease;
+}
+
+.uv-tour-spot[hidden] {
+  display: none;
+}
+
+.uv-tour-card {
+  position: fixed;
+  z-index: 9992;
+  background: rgba(11, 21, 38, 0.98);
+  border: 1px solid rgba(226, 184, 87, 0.60);
+  border-radius: 16px;
+  padding: 18px 20px;
+  box-shadow: 0 28px 60px rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(18px);
+  max-height: 46vh;
+  overflow-y: auto;
+}
+
+.uv-tour-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.uv-tour-badge {
+  color: var(--c);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.uv-tour-x {
+  padding: 4px 9px;
+  font-size: 0.9rem;
+}
+
+.uv-tour-card h3 {
+  color: #fff;
+  font-size: 1.08rem;
+  margin-bottom: 6px;
+}
+
+.uv-tour-card p {
+  color: #dbe4f3;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  margin-bottom: 14px;
+}
+
+.uv-tour-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .app-bg::before,
   .aura i,

@@ -1,4 +1,156 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Sign in — UniVault</title><link rel="icon" type="image/png" href="assets/knust-crest.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="landing.css"></head><body><div class="aura"><i></i><i></i><i></i></div><div class="scene"><div class="cube"><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i></div><div class="cube"><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i></div><div class="cube"><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i></div><div class="cube"><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i></div></div>
-<header><a href="index.html" class="logo" style="text-decoration:none;color:inherit"><img class="nav-crest" src="assets/knust-crest.png" alt="KNUST crest"><span>Uni<em>Vault</em></span></a><a class="cta g" href="index.html">Welcome</a></header>
-<div class="wrap"><form id="f" class="glass tilt"><img class="crest" alt="KNUST crest" src="assets/knust-crest.png"><h2 id="ttl" style="text-align:center">Create your vault</h2><input id="name" placeholder="Full name"><input id="em" type="email" placeholder="Email" required><input id="pw" type="password" placeholder="Password (min 6)" minlength="6" required><button id="go">Sign up</button><p id="msg"></p><a href="#" id="tgl">Have an account? Sign in</a><a href="index.html">Back to welcome</a></form></div>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" crossorigin="anonymous"></script><script src="config.js"></script><script src="signup.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Sign in — UniVault | KNUST Academic Archive</title>
+  <meta name="description" content="Sign in or create your UniVault academic account to access verified KNUST past examination papers, AI study explanations, and contributor rewards.">
+  <link rel="icon" type="image/png" href="assets/knust-crest.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="auth.css">
+</head>
+<body class="auth-page">
+  <div class="app-bg auth-bg" aria-hidden="true"></div>
+  <div class="aura" aria-hidden="true"><i></i><i></i><i></i></div>
+
+  <header class="auth-header">
+    <a href="index.html" class="logo" style="text-decoration:none;color:inherit">
+      <img class="nav-crest" src="assets/knust-crest.png" alt="KNUST crest">
+      <span>Uni<em>Vault</em></span>
+    </a>
+    <nav class="auth-header-nav" aria-label="Primary">
+      <a class="auth-header-link auth-hide-sm" href="index.html#catalog-search">Course Archive</a>
+      <a class="auth-header-link auth-hide-sm" href="index.html#how">How It Works</a>
+      <a class="auth-header-link" href="index.html">Back to Welcome</a>
+    </nav>
+  </header>
+
+  <main class="auth-main">
+    <div class="auth-institution">
+      <img class="auth-crest" src="assets/knust-crest.png" alt="Kwame Nkrumah University of Science and Technology crest">
+      <div class="auth-inst-copy">
+        <p class="auth-kicker">Kwame Nkrumah University of Science and Technology</p>
+        <p class="auth-inst-sub">Academic Past-Question Repository · Member Access</p>
+      </div>
+    </div>
+
+    <section class="auth-editorial" aria-labelledby="authEditorialTitle">
+      <h1 id="authEditorialTitle" class="auth-headline">Official Past-Question Archive &amp; Study Portal</h1>
+      <p class="auth-lead">Access department-verified KNUST examination papers, step-by-step AI explanations, and custom practice quizzes from one unified academic workspace.</p>
+
+      <ol class="auth-pillars">
+        <li>
+          <span class="auth-pillar-num">01</span>
+          <div class="auth-pillar-body">
+            <strong>Verified Examination Catalog</strong>
+            <span>Papers indexed cleanly by faculty department, course code, academic year, and semester.</span>
+          </div>
+        </li>
+        <li>
+          <span class="auth-pillar-num">02</span>
+          <div class="auth-pillar-body">
+            <strong>AI Study Tutor &amp; Media Transcription</strong>
+            <span>Analyze uploaded PDFs, slides, exam images, audio, and lectures with lecturer-style practice sets.</span>
+          </div>
+        </li>
+        <li>
+          <span class="auth-pillar-num">03</span>
+          <div class="auth-pillar-body">
+            <strong>Contributor Credit &amp; Payouts</strong>
+            <span>Earn GH₵3 per approved past-question submission with direct Mobile Money settlement.</span>
+          </div>
+        </li>
+      </ol>
+    </section>
+
+    <section class="auth-panel-col" aria-label="Account authentication">
+      <form id="f" class="auth-card" novalidate>
+        <div class="auth-tabs" role="tablist" aria-label="Authentication mode">
+          <button type="button" id="tabIn" role="tab" aria-selected="true" class="on">Sign in</button>
+          <button type="button" id="tabUp" role="tab" aria-selected="false">Create account</button>
+        </div>
+
+        <div class="auth-card-head">
+          <h2 id="ttl">Sign in to your account</h2>
+          <p id="authSub">Enter your registered email and password to continue.</p>
+        </div>
+
+        <div class="auth-fields">
+          <div id="nameGroup" class="auth-field" hidden>
+            <label for="name">Full name</label>
+            <input id="name" type="text" placeholder="e.g. Kwame Boateng" autocomplete="name" autocapitalize="words">
+          </div>
+
+          <div class="auth-field">
+            <label for="em">Email address</label>
+            <input id="em" type="email" inputmode="email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="you@example.com" required>
+          </div>
+
+          <div class="auth-field">
+            <div class="auth-label-row">
+              <label for="pw">Password</label>
+              <button type="button" id="forgotPw" class="auth-link-btn">Forgot password?</button>
+            </div>
+            <div class="pw-wrap">
+              <input id="pw" type="password" autocomplete="current-password" placeholder="Minimum 6 characters" minlength="6" required>
+              <button type="button" id="togglePw" class="pw-toggle" aria-label="Show password">Show</button>
+            </div>
+          </div>
+        </div>
+
+        <button id="go" type="submit" class="auth-submit">Sign in</button>
+
+        <p id="msg" class="auth-msg" role="status" aria-live="polite"></p>
+        <button type="button" id="resendVerifyBtn" class="ghost auth-resend" hidden>Resend verification email</button>
+
+        <div class="auth-card-foot">
+          <a href="#" id="tgl">New here? Create an account</a>
+          <a href="index.html" class="auth-muted-link">Return to welcome</a>
+        </div>
+      </form>
+
+      <form id="recoveryForm" class="auth-card" hidden novalidate>
+        <div class="auth-card-head">
+          <h2>Set new password</h2>
+          <p>Enter and confirm a new password for your UniVault account.</p>
+        </div>
+
+        <div class="auth-fields">
+          <div class="auth-field">
+            <label for="newPw">New password</label>
+            <div class="pw-wrap">
+              <input id="newPw" type="password" autocomplete="new-password" placeholder="Minimum 6 characters" minlength="6" required>
+              <button type="button" id="toggleNewPw" class="pw-toggle" aria-label="Show password">Show</button>
+            </div>
+          </div>
+
+          <div class="auth-field">
+            <label for="confirmNewPw">Confirm new password</label>
+            <input id="confirmNewPw" type="password" autocomplete="new-password" placeholder="Re-enter new password" minlength="6" required>
+          </div>
+        </div>
+
+        <button id="saveNewPwBtn" type="submit" class="auth-submit">Update password</button>
+        <p id="recMsg" class="auth-msg" role="status" aria-live="polite"></p>
+
+        <div class="auth-card-foot">
+          <a href="signup.html?mode=in">Back to sign in</a>
+          <a href="index.html" class="auth-muted-link">Return to welcome</a>
+        </div>
+      </form>
+    </section>
+  </main>
+
+  <footer class="auth-page-foot">
+    <span>UniVault · Academic Past-Question Repository for KNUST</span>
+    <span>Protected Academic Access · Verified Contributors</span>
+  </footer>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" crossorigin="anonymous"></script>
+  <script src="config.js"></script>
+  <script src="signup.js"></script>
+</body>
+</html>

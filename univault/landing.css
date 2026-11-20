@@ -379,28 +379,120 @@
 
 .wrap {
   min-height: 100vh;
+  min-height: 100dvh;
   display: grid;
   place-items: center;
   perspective: 1100px;
-  padding: 20px;
+  padding: 20px 16px;
+  position: relative;
+  z-index: 2;
 }
 
 header ~ .wrap {
   min-height: calc(100vh - 82px);
+  min-height: calc(100dvh - 82px);
 }
 
 .tilt {
-  width: min(440px, 94vw);
+  width: min(440px, 100%);
   transition: transform 0.18s cubic-bezier(0.16, 1, 0.3, 1);
   transform-style: preserve-3d;
   display: grid;
   gap: 13px;
-  padding: 30px;
+  padding: 28px 24px;
   box-shadow: 0 40px 80px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  position: relative;
+  z-index: 2;
+}
+
+@media (max-width: 860px), (hover: none) {
+  .wrap {
+    perspective: none;
+    align-content: start;
+    padding-top: 24px;
+    padding-bottom: 36px;
+  }
+
+  .tilt {
+    transform: none !important;
+    transform-style: flat;
+  }
+}
+
+.auth-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 4px;
+  border-radius: 12px;
+  background: rgba(8, 15, 28, 0.68);
+  border: 1px solid var(--b);
+}
+
+.auth-tabs button {
+  padding: 9px 12px;
+  border-radius: 9px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--mut);
+  font-size: 0.94rem;
+  font-weight: 600;
+}
+
+.auth-tabs button.on {
+  background: rgba(37, 99, 235, 0.32);
+  border-color: rgba(226, 184, 87, 0.48);
+  color: #fff;
 }
 
 .tilt input {
   width: 100%;
+  font-size: 16px;
+}
+
+.pw-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.pw-wrap input {
+  padding-right: 68px;
+}
+
+.pw-toggle {
+  position: absolute;
+  right: 6px;
+  padding: 6px 10px;
+  font-size: 0.82rem;
+  border-radius: 8px;
+  background: rgba(15, 26, 46, 0.88);
+  border: 1px solid var(--b);
+  color: var(--mut);
+}
+
+.auth-aux {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.auth-link-btn {
+  background: transparent;
+  border: none;
+  padding: 0;
+  color: var(--c);
+  font-size: 0.88rem;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.auth-link-btn:hover {
+  background: transparent;
+  color: #fff;
 }
 
 .tilt .crest {
@@ -425,6 +517,11 @@ header ~ .wrap {
   color: #fca5a5;
   min-height: 1.2em;
   font-size: 0.94rem;
+  line-height: 1.45;
+}
+
+#msg.ok {
+  color: #6ee7b7;
 }
 
 /* Desktop View Readability, Layout Balance & 3D Depth */

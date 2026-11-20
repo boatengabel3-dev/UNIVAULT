@@ -105,10 +105,24 @@ const initialParams = new URLSearchParams(location.search);
     } else if (initView && initView !== "browse") {
       show(initView, true);
     }
+    if (!initPaper && window.uvGuide?.init) {
+      window.uvGuide.init({
+        user,
+        profile: P,
+        showView: (viewId) => show(viewId, true),
+      });
+    }
   } finally {
     window.dispatchEvent(new CustomEvent("uv:rendered"));
   }
 })();
+
+if ($("#startTourBtn")) {
+  $("#startTourBtn").onclick = () => {
+    setMenuOpen(false);
+    window.uvGuide?.startTour();
+  };
+}
 
 $("#out").onclick = async () => {
   await sb.auth.signOut();
