@@ -131,7 +131,7 @@ async function load() {
       );
     }
   } else if (settingsRes?.error && $("#settingsMsg")) {
-    $("#settingsMsg").style.color = "#fcd34d";
+    $("#settingsMsg").style.color = "var(--warn-ink)";
     $("#settingsMsg").textContent = "Run the app_settings SQL in schema.sql to persist changes.";
   }
 
@@ -266,14 +266,14 @@ if ($("#settingsForm")) {
 
     if (!Number.isFinite(priceGhs) || priceGhs < 1) {
       if (msgEl) {
-        msgEl.style.color = "#fca5a5";
+        msgEl.style.color = "var(--err-ink)";
         msgEl.textContent = "Subscription price must be at least GH₵ 1.";
       }
       return;
     }
     if (!Number.isFinite(freeAiLimit) || freeAiLimit < 0) {
       if (msgEl) {
-        msgEl.style.color = "#fca5a5";
+        msgEl.style.color = "var(--err-ink)";
         msgEl.textContent = "Free AI uses must be 0 or greater.";
       }
       return;
@@ -293,7 +293,7 @@ if ($("#settingsForm")) {
       });
       if (error) {
         if (msgEl) {
-          msgEl.style.color = "#fca5a5";
+          msgEl.style.color = "var(--err-ink)";
           msgEl.textContent = /app_settings/i.test(error.message)
             ? "Run the new app_settings SQL in schema.sql first, then retry."
             : error.message;
@@ -301,7 +301,7 @@ if ($("#settingsForm")) {
         return;
       }
       if (msgEl) {
-        msgEl.style.color = "#6ee7b7";
+        msgEl.style.color = "var(--ok-ink)";
         msgEl.textContent = `Saved: GH₵${priceGhs}/month & ${freeAiLimit} free AI use${freeAiLimit === 1 ? "" : "s"} before Premium.`;
       }
     } finally {
@@ -591,7 +591,7 @@ $("#adminUploadForm").onsubmit = async (e) => {
 
   const dup = await runAdminDupCheck(false);
   if (dup.duplicate) {
-    msgEl.style.color = "#fca5a5";
+    msgEl.style.color = "var(--err-ink)";
     msgEl.textContent = dup.reason || "Duplicate past question already exists.";
     return;
   }
@@ -627,14 +627,14 @@ $("#adminUploadForm").onsubmit = async (e) => {
   }
 
   if (error) {
-    msgEl.style.color = "#fca5a5";
+    msgEl.style.color = "var(--err-ink)";
     msgEl.textContent = error.message;
     showAdminDupBanner({ duplicate: true, reason: error.message });
     return;
   }
 
   clearAdminPreview(false);
-  msgEl.style.color = "#6ee7b7";
+  msgEl.style.color = "var(--ok-ink)";
   msgEl.textContent = `Published ${payload.c} (${payload.y}) to the live archive.`;
   $("#adminUploadForm").reset();
   await load();

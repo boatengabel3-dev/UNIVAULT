@@ -52,10 +52,58 @@ function showResendButton(email) {
   if (btn) btn.hidden = !lastPendingEmail;
 }
 
-function showRecoveryForm(noticeText = "") {
+const SAVED_EMAIL_KEY = "uv_saved_email";
+
+function restoreSavedEmail() {
+  try {
+    const saved = localStorage.getItem(SAVED_EMAIL_KEY) || "";
+    if (saved && $("#em") && !$("#em").value) {
+      $("#em").value = saved;
+    }
+    if (saved && $("#recEmail") && !$("#recEmail").value) {
+      $("#recEmail").value = saved;
+    }
+  } catch {}
+}
+
+async function saveCredentialsToBrowser(email, password, fullName = "") {
+  const cleanEmail = String(email || "").trim().toLowerCase();
+  const shouldRemember = $("#rememberCreds") ? $("#rememberCreds").checked : true;
+  try {
+    if (shouldRemember && cleanEmail) {
+      localStorage.setItem(SAVED_EMAIL_KEY, cleanEmail);
+    } else if (!shouldRemember) {
+      localStorage.removeItem(SAVED_EMAIL_KEY);
+    }
+  } catch {}
+
+  if (!shouldRemember || !cleanEmail || !password) return;
+  if (typeof window.PasswordCredential === "function" && navigator.credentials?.store) {
+    try {
+      const cred = new window.PasswordCredential({
+        id: cleanEmail,
+        password,
+        name: String(fullName || cleanEmail).trim(),
+      });
+      await navigator.credentials.store(cred);
+    } catch {}
+  }
+}
+
+function showRecoveryForm(noticeText = "", userEmail = "") {
   isRecoveryMode = true;
   if ($("#f")) $("#f").hidden = true;
   if ($("#recoveryForm")) $("#recoveryForm").hidden = false;
+  if ($("#recEmail")) {
+    const fallback = (() => {
+      try {
+        return localStorage.getItem(SAVED_EMAIL_KEY) || "";
+      } catch {
+        return "";
+      }
+    })();
+    if (userEmail || fallback) $("#recEmail").value = userEmail || fallback;
+  }
   if (noticeText) setRecMsg(noticeText, true);
 }
 
@@ -268,6 +316,8 @@ if ($("#recoveryForm")) {
       }
       isRecoveryMode = false;
       const u = data?.user;
+      const recEmail = u?.email || $("#recEmail")?.value || "";
+      if (recEmail) await saveCredentialsToBrowser(recEmail, p1, u?.user_metadata?.full_name || "");
       if (u) saveWelcomeState(u, "in");
       setRecMsg("Password updated! Signing you into UniVault...", true);
       setTimeout(() => {
@@ -286,6 +336,7 @@ if ($("#recoveryForm")) {
 }
 
 applyMode(mode);
+restoreSavedEmail();
 
 if (urlAuthError) {
   setMsg(
@@ -365,6 +416,12 @@ $("#f").onsubmit = async (e) => {
       return;
     }
 
+    await saveCredentialsToBrowser(
+      email,
+      password,
+      fullName || r.data?.user?.user_metadata?.full_name || ""
+    );
+
     if (r.data?.session) {
       const signedInName = saveWelcomeState(r.data.session.user, mode);
       setMsg(
@@ -375,8 +432,11 @@ $("#f").onsubmit = async (e) => {
       );
       await redirectAfterAuth(r.data.session.user, mode);
     } else {
+      const rememberNote = $("#rememberCreds")?.checked
+        ? " Your email is saved for next time (accept your browser's Save Password prompt if shown)."
+        : "";
       setMsg(
-        `Verification email sent to ${email}! Open the link in your email to verify and sign in.`,
+        `Verification email sent to ${email}! Open the link in your email to verify and sign in.${rememberNote}`,
         true
       );
       showResendButton(email);
@@ -457,7 +517,8 @@ if (typeof sb?.auth?.onAuthStateChange === "function") {
   const { data } = await sb.auth.getSession();
   if (isRecoveryMode) {
     showRecoveryForm(
-      data?.session ? "Reset link verified! Enter your new password below." : ""
+      data?.session ? "Reset link verified! Enter your new password below." : "",
+      data?.session?.user?.email || ""
     );
     if (!data?.session && !$("#recMsg")?.textContent) {
       setRecMsg(

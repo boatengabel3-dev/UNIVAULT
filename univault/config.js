@@ -408,3 +408,73 @@ const uvMotion = (() => {
   return { observeReveals };
 })();
 
+const uvTheme = (() => {
+  const KEY = "uv_theme";
+  const SUN_SVG =
+    '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>';
+  const MOON_SVG =
+    '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>';
+
+  function get() {
+    try {
+      return localStorage.getItem(KEY) === "light" ? "light" : "dark";
+    } catch {
+      return "dark";
+    }
+  }
+
+  function syncButtons(theme) {
+    const isLight = theme === "light";
+    const label = isLight ? "Dark" : "Light";
+    const actionLabel = isLight ? "Switch to dark mode" : "Switch to light mode";
+    const icon = isLight ? MOON_SVG : SUN_SVG;
+
+    document.querySelectorAll("[data-theme-toggle]").forEach((btn) => {
+      btn.setAttribute("aria-label", actionLabel);
+      btn.setAttribute("title", actionLabel);
+      btn.setAttribute("aria-pressed", isLight ? "true" : "false");
+      btn.innerHTML = `${icon}<span class="theme-toggle-label">${label}</span>`;
+    });
+  }
+
+  function apply(theme, persist = false) {
+    const next = theme === "light" ? "light" : "dark";
+    const root = document.documentElement;
+    if (next === "light") {
+      root.dataset.theme = "light";
+    } else {
+      delete root.dataset.theme;
+    }
+    root.style.colorScheme = next;
+    if (persist) {
+      try {
+        localStorage.setItem(KEY, next);
+      } catch {}
+    }
+    syncButtons(next);
+    return next;
+  }
+
+  function toggle() {
+    return apply(get() === "light" ? "dark" : "light", true);
+  }
+
+  apply(get(), false);
+
+  document.addEventListener("DOMContentLoaded", () => {
+    syncButtons(get());
+    document.querySelectorAll("[data-theme-toggle]").forEach((btn) => {
+      if (btn.dataset.themeBound === "1") return;
+      btn.dataset.themeBound = "1";
+      btn.addEventListener("click", () => toggle());
+    });
+  });
+
+  window.addEventListener("storage", (e) => {
+    if (e.key === KEY) apply(e.newValue === "light" ? "light" : "dark", false);
+  });
+
+  window.uvTheme = { get, apply, toggle };
+  return { get, apply, toggle };
+})();
+

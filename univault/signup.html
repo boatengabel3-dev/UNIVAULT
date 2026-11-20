@@ -3,6 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
+  <script>try{if(localStorage.getItem("uv_theme")==="light")document.documentElement.dataset.theme="light"}catch{}</script>
   <title>Sign in — UniVault | KNUST Academic Archive</title>
   <meta name="description" content="Sign in or create your UniVault academic account to access verified KNUST past examination papers, AI study explanations, and contributor rewards.">
   <link rel="icon" type="image/png" href="assets/knust-crest.png">
@@ -21,11 +22,14 @@
       <img class="nav-crest" src="assets/knust-crest.png" alt="KNUST crest">
       <span>Uni<em>Vault</em></span>
     </a>
-    <nav class="auth-header-nav" aria-label="Primary">
-      <a class="auth-header-link auth-hide-sm" href="index.html#catalog-search">Course Archive</a>
-      <a class="auth-header-link auth-hide-sm" href="index.html#how">How It Works</a>
-      <a class="auth-header-link" href="index.html">Back to Welcome</a>
-    </nav>
+    <div class="auth-header-right">
+      <nav class="auth-header-nav" aria-label="Primary">
+        <a class="auth-header-link auth-hide-sm" href="index.html#catalog-search">Course Archive</a>
+        <a class="auth-header-link auth-hide-sm" href="index.html#how">How It Works</a>
+        <a class="auth-header-link" href="index.html">Back to Welcome</a>
+      </nav>
+      <button type="button" class="theme-toggle" data-theme-toggle aria-label="Switch to light mode" aria-pressed="false"></button>
+    </div>
   </header>
 
   <main class="auth-main">
@@ -67,7 +71,7 @@
     </section>
 
     <section class="auth-panel-col" aria-label="Account authentication">
-      <form id="f" class="auth-card" novalidate>
+      <form id="f" class="auth-card" method="post" action="signup.html" autocomplete="on" novalidate>
         <div class="auth-tabs" role="tablist" aria-label="Authentication mode">
           <button type="button" id="tabIn" role="tab" aria-selected="true" class="on">Sign in</button>
           <button type="button" id="tabUp" role="tab" aria-selected="false">Create account</button>
@@ -81,12 +85,12 @@
         <div class="auth-fields">
           <div id="nameGroup" class="auth-field" hidden>
             <label for="name">Full name</label>
-            <input id="name" type="text" placeholder="e.g. Kwame Boateng" autocomplete="name" autocapitalize="words">
+            <input id="name" name="name" type="text" placeholder="e.g. Kwame Boateng" autocomplete="name" autocapitalize="words">
           </div>
 
           <div class="auth-field">
             <label for="em">Email address</label>
-            <input id="em" type="email" inputmode="email" autocomplete="email" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="you@example.com" required>
+            <input id="em" name="email" type="email" inputmode="email" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="you@example.com" required>
           </div>
 
           <div class="auth-field">
@@ -95,11 +99,16 @@
               <button type="button" id="forgotPw" class="auth-link-btn">Forgot password?</button>
             </div>
             <div class="pw-wrap">
-              <input id="pw" type="password" autocomplete="current-password" placeholder="Minimum 6 characters" minlength="6" required>
+              <input id="pw" name="password" type="password" autocomplete="current-password" placeholder="Minimum 6 characters" minlength="6" required>
               <button type="button" id="togglePw" class="pw-toggle" aria-label="Show password">Show</button>
             </div>
           </div>
         </div>
+
+        <label class="auth-remember">
+          <input id="rememberCreds" type="checkbox" class="auth-remember-box" checked>
+          <span>Remember email &amp; save login on this device</span>
+        </label>
 
         <button id="go" type="submit" class="auth-submit">Sign in</button>
 
@@ -112,24 +121,26 @@
         </div>
       </form>
 
-      <form id="recoveryForm" class="auth-card" hidden novalidate>
+      <form id="recoveryForm" class="auth-card" method="post" action="signup.html" autocomplete="on" hidden novalidate>
         <div class="auth-card-head">
           <h2>Set new password</h2>
           <p>Enter and confirm a new password for your UniVault account.</p>
         </div>
 
+        <input id="recEmail" name="email" type="email" autocomplete="username" hidden>
+
         <div class="auth-fields">
           <div class="auth-field">
             <label for="newPw">New password</label>
             <div class="pw-wrap">
-              <input id="newPw" type="password" autocomplete="new-password" placeholder="Minimum 6 characters" minlength="6" required>
+              <input id="newPw" name="password" type="password" autocomplete="new-password" placeholder="Minimum 6 characters" minlength="6" required>
               <button type="button" id="toggleNewPw" class="pw-toggle" aria-label="Show password">Show</button>
             </div>
           </div>
 
           <div class="auth-field">
             <label for="confirmNewPw">Confirm new password</label>
-            <input id="confirmNewPw" type="password" autocomplete="new-password" placeholder="Re-enter new password" minlength="6" required>
+            <input id="confirmNewPw" name="confirmPassword" type="password" autocomplete="new-password" placeholder="Re-enter new password" minlength="6" required>
           </div>
         </div>
 

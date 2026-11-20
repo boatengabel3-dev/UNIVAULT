@@ -1,5 +1,5 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>UniVault — KNUST Past Questions &amp; Study Archive</title><link rel="icon" type="image/png" href="assets/knust-crest.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="landing.css"></head><body><div class="aura"><i></i><i></i><i></i></div><div class="scene"><div class="cube"><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i></div><div class="cube"><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i></div><div class="cube"><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i></div><div class="cube"><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i></div></div>
-<header><b class="logo"><img class="nav-crest" src="assets/knust-crest.png" alt="KNUST crest"><span>Uni<em>Vault</em></span></b><a class="cta g" href="signup.html?mode=in">Sign in</a></header>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><script>try{if(localStorage.getItem("uv_theme")==="light")document.documentElement.dataset.theme="light"}catch{}</script><title>UniVault — KNUST Past Questions &amp; Study Archive</title><link rel="icon" type="image/png" href="assets/knust-crest.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="landing.css"></head><body><div class="aura"><i></i><i></i><i></i></div><div class="scene"><div class="cube"><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i></div><div class="cube"><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i></div><div class="cube"><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i></div><div class="cube"><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i><i><img src="assets/knust-crest.png" alt=""></i></div></div>
+<header><b class="logo"><img class="nav-crest" src="assets/knust-crest.png" alt="KNUST crest"><span>Uni<em>Vault</em></span></b><div class="hdr-actions"><button type="button" class="theme-toggle" data-theme-toggle aria-label="Switch to light mode" aria-pressed="false"></button><a class="cta g" href="signup.html?mode=in">Sign in</a></div></header>
 <main>
 <div class="hero"><img class="crest" alt="KNUST crest" src="assets/knust-crest.png"><h1>Welcome to UniVault</h1><p>Every KNUST past question, sorted by department, course and year. Practise with an AI tutor that studies how your lecturers set questions, and earn GH₵3 for each question you upload.</p><a href="signup.html?mode=up">Get started</a><a class="cta g" href="#how">How it works</a></div>
 
@@ -189,7 +189,7 @@
     form.onsubmit=async(e)=>{
       e.preventDefault();
       if(!isValidSupabaseUrl){
-        msg.style.color="#fca5a5";
+        msg.style.color="var(--err-ink)";
         msg.textContent="Supabase is not configured yet.";
         return;
       }
@@ -197,7 +197,7 @@
       const role=$("#storyRole").value.trim();
       const quote=$("#storyQuote").value.trim();
       if(author_name.length<2||role.length<2||quote.length<15){
-        msg.style.color="#fca5a5";
+        msg.style.color="var(--err-ink)";
         msg.textContent="Please enter your name, role, and at least 15 characters for your story.";
         return;
       }
@@ -211,12 +211,12 @@
         if(uid)row.user_id=uid;
         const {error}=await sb.from("testimonials").insert(row);
         if(error)throw error;
-        msg.style.color="#6ee7b7";
+        msg.style.color="var(--ok-ink)";
         msg.textContent="Thank you! Your story has been submitted to UniVault.";
         form.reset();
         setTimeout(()=>{if(dlg.open)dlg.close();},1400);
       }catch(err){
-        msg.style.color="#fca5a5";
+        msg.style.color="var(--err-ink)";
         msg.textContent=err?.message||"Could not submit your story right now.";
       }finally{
         subBtn.disabled=false;
