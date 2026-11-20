@@ -478,3 +478,133 @@ const uvTheme = (() => {
   return { get, apply, toggle };
 })();
 
+const uvPwa = (() => {
+  let deferredPrompt = null;
+  let offlineEl = null;
+  let iosDialog = null;
+
+  const isStandalone = () =>
+    (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
+    window.navigator.standalone === true;
+
+  const isIOS = () => /iphone|ipad|ipod/i.test(window.navigator.userAgent || "");
+
+  function syncInstallButtons() {
+    const installed = isStandalone();
+    const canInstall = !installed && Boolean(deferredPrompt);
+    const showIos = !installed && !canInstall && isIOS();
+
+    document.querySelectorAll("[data-pwa-install]").forEach((btn) => {
+      if (canInstall) {
+        btn.hidden = false;
+        btn.textContent = btn.dataset.installLabel || "Install App";
+      } else if (showIos) {
+        btn.hidden = false;
+        btn.textContent = "Install on iOS";
+      } else {
+        btn.hidden = true;
+      }
+    });
+  }
+
+  function openIosInstallGuide() {
+    if (!iosDialog) {
+      iosDialog = document.createElement("dialog");
+      iosDialog.className = "pwa-ios-dialog";
+      iosDialog.setAttribute("aria-labelledby", "uvIosTitle");
+      iosDialog.innerHTML =
+        '<h3 id="uvIosTitle">Install UniVault on iPhone / iPad</h3>' +
+        '<p class="pwa-ios-copy">Save UniVault to your home screen for quick launch and offline access to previously loaded past papers.</p>' +
+        '<ol class="pwa-ios-steps"><li>Tap the <strong>Share</strong> button in Safari.</li><li>Scroll down and tap <strong>Add to Home Screen</strong>.</li></ol>' +
+        '<div class="bar" style="justify-content:flex-end;margin-bottom:0"><button type="button" class="ghost" id="uvIosClose">Close</button></div>';
+      document.body.appendChild(iosDialog);
+      iosDialog.querySelector("#uvIosClose").onclick = () => iosDialog.close();
+      iosDialog.addEventListener("click", (e) => {
+        if (e.target === iosDialog) iosDialog.close();
+      });
+    }
+    if (!iosDialog.open) iosDialog.showModal();
+  }
+
+  async function triggerInstall() {
+    if (deferredPrompt) {
+      try {
+        await deferredPrompt.prompt();
+        const choice = await deferredPrompt.userChoice;
+        if (choice?.outcome === "accepted") {
+          deferredPrompt = null;
+        }
+      } catch {}
+      syncInstallButtons();
+      return;
+    }
+    if (isIOS() && !isStandalone()) {
+      openIosInstallGuide();
+    }
+  }
+
+  function ensureOfflineBar() {
+    if (offlineEl || !document.body) return offlineEl;
+    offlineEl = document.createElement("div");
+    offlineEl.id = "uvOfflineBar";
+    offlineEl.className = "uv-offline-bar";
+    offlineEl.setAttribute("role", "status");
+    offlineEl.setAttribute("aria-live", "polite");
+    offlineEl.hidden = true;
+    offlineEl.innerHTML =
+      '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="1" y1="1" x2="23" y2="23"/><path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55"/><path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39"/><path d="M10.71 5.05A16 16 0 0 1 22.58 9"/><path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>' +
+      "<span>Offline mode — showing cached archive &amp; saved papers</span>";
+    document.body.appendChild(offlineEl);
+    return offlineEl;
+  }
+
+  function syncOnlineStatus() {
+    const bar = ensureOfflineBar();
+    if (!bar) return;
+    const online = typeof navigator !== "undefined" ? navigator.onLine : true;
+    bar.hidden = online;
+    document.documentElement.dataset.offline = online ? "false" : "true";
+  }
+
+  function clearUserCache() {
+    try {
+      if (navigator.serviceWorker?.controller) {
+        navigator.serviceWorker.controller.postMessage({ type: "CLEAR_USER_DATA_CACHE" });
+      }
+    } catch {}
+  }
+
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    syncInstallButtons();
+  });
+
+  window.addEventListener("appinstalled", () => {
+    deferredPrompt = null;
+    syncInstallButtons();
+  });
+
+  window.addEventListener("online", syncOnlineStatus);
+  window.addEventListener("offline", syncOnlineStatus);
+
+  document.addEventListener("DOMContentLoaded", () => {
+    syncOnlineStatus();
+    syncInstallButtons();
+    document.querySelectorAll("[data-pwa-install]").forEach((btn) => {
+      if (btn.dataset.pwaBound === "1") return;
+      btn.dataset.pwaBound = "1";
+      btn.addEventListener("click", triggerInstall);
+    });
+  });
+
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {});
+    });
+  }
+
+  window.uvPwa = { syncInstallButtons, syncOnlineStatus, clearUserCache };
+  return { syncInstallButtons, syncOnlineStatus, clearUserCache };
+})();
+

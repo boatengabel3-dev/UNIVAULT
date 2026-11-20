@@ -43,6 +43,7 @@ async function authenticateSupabaseUser(req: express.Request): Promise<{
       apikey: supabaseAnonKey,
       Authorization: `Bearer ${token}`,
     },
+    signal: AbortSignal.timeout(8000),
   });
   if (!userRes.ok) {
     throw Object.assign(new Error('Please sign in first.'), { status: 401 });
@@ -173,7 +174,6 @@ app.post('/api/ai-chat', async (req, res) => {
       return;
     }
 
-    const prep = await prepareAiChat(input);
     let closed = false;
     req.on('close', () => {
       closed = true;
@@ -187,12 +187,23 @@ app.post('/api/ai-chat', async (req, res) => {
     res.flushHeaders?.();
     headersSentForStream = true;
 
-    for await (const ev of streamAiChat(prep, () => closed || res.writableEnded)) {
-      if (closed || res.writableEnded) break;
-      res.write(`data: ${JSON.stringify(ev)}\n\n`);
-    }
-    if (!res.writableEnded) {
-      res.end();
+    const keepalive = setInterval(() => {
+      if (!closed && !res.writableEnded) {
+        res.write(`data: ${JSON.stringify({ type: 'ping' })}\n\n`);
+      }
+    }, 4000);
+
+    try {
+      const prep = await prepareAiChat(input);
+      for await (const ev of streamAiChat(prep, () => closed || res.writableEnded)) {
+        if (closed || res.writableEnded) break;
+        res.write(`data: ${JSON.stringify(ev)}\n\n`);
+      }
+      if (!res.writableEnded) {
+        res.end();
+      }
+    } finally {
+      clearInterval(keepalive);
     }
   } catch (err: unknown) {
     const errObj = err && typeof err === 'object' ? (err as Record<string, unknown>) : {};
@@ -242,6 +253,16 @@ app.get('/config.js', (_req, res) => {
 
   res.setHeader('Cache-Control', 'no-store');
   res.type('application/javascript').send(content);
+});
+
+app.get('/sw.js', (_req, res) => {
+  const swPath = path.join(staticDir, 'sw.js');
+  if (!fs.existsSync(swPath)) {
+    res.status(404).end();
+    return;
+  }
+  res.setHeader('Cache-Control', 'no-cache');
+  res.type('application/javascript').sendFile(swPath);
 });
 
 app.use(express.static(staticDir));

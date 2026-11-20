@@ -97,32 +97,135 @@ function normalizeChatMessages(
   }));
 }
 
-async function callGeminiWithRetry<T>(fn: () => Promise<T>): Promise<T> {
-  const delays = [500, 1200];
-  let lastErr: unknown;
-  for (let attempt = 0; attempt <= delays.length; attempt++) {
+const PRIMARY_TEXT_MODEL = 'gemini-4-hydrogen';
+const BACKUP_TEXT_MODEL = 'gemini-3.1-flash-lite';
+const TEXT_MODELS = [PRIMARY_TEXT_MODEL, BACKUP_TEXT_MODEL];
+
+function extractNestedErrorDetails(raw: string): { code?: number; status?: string; message?: string } {
+  let current = String(raw || '').trim();
+  let code: number | undefined;
+  let status: string | undefined;
+
+  for (let depth = 0; depth < 4; depth++) {
+    if (!current.startsWith('{')) break;
     try {
-      return await fn();
-    } catch (err) {
-      lastErr = err;
-      const status =
-        err && typeof err === 'object' && 'status' in err && typeof err.status === 'number'
-          ? err.status
-          : 0;
-      const msg = err instanceof Error ? err.message : String(err || '');
-      const isTransient =
-        status === 429 ||
-        status === 500 ||
-        status === 502 ||
-        status === 503 ||
-        status === 504 ||
-        /ECONNRESET|ETIMEDOUT|fetch failed|network|unavailable/i.test(msg);
-      if (!isTransient || attempt === delays.length) {
-        throw err;
+      const parsed = JSON.parse(current) as Record<string, unknown>;
+      const inner =
+        parsed.error && typeof parsed.error === 'object'
+          ? (parsed.error as Record<string, unknown>)
+          : parsed;
+      if (typeof inner.code === 'number') code = inner.code;
+      if (typeof inner.status === 'string') status = inner.status;
+      if (typeof inner.message === 'string' && inner.message.trim()) {
+        current = inner.message.trim();
+        continue;
       }
-      await new Promise((r) => setTimeout(r, delays[attempt]));
+      break;
+    } catch {
+      break;
     }
   }
+
+  return { code, status, message: current };
+}
+
+export function formatAiError(err: unknown): { message: string; status: number } {
+  const errObj = err && typeof err === 'object' ? (err as Record<string, unknown>) : {};
+  const explicitStatus = typeof errObj.status === 'number' ? errObj.status : 0;
+  const rawMsg = err instanceof Error ? err.message : String(err || 'AI service error');
+  const nested = extractNestedErrorDetails(rawMsg);
+  const status = explicitStatus || nested.code || 500;
+  const text = (nested.message || rawMsg || '').trim();
+
+  if (
+    status === 503 ||
+    nested.code === 503 ||
+    nested.status === 'UNAVAILABLE' ||
+    /high demand|service unavailable|overloaded|unavailable/i.test(text)
+  ) {
+    return {
+      status: 503,
+      message:
+        'AI Tutor is experiencing temporary high demand right now. Please wait a few seconds and tap Retry.',
+    };
+  }
+
+  if (status === 429 || nested.code === 429 || nested.status === 'RESOURCE_EXHAUSTED' || /quota|rate limit|resource_exhausted/i.test(text)) {
+    return {
+      status: 429,
+      message:
+        'AI Tutor is temporarily rate-limited due to high traffic. Please wait a moment and tap Retry.',
+    };
+  }
+
+  if (status === 403 || status === 400 && /api key|permission_denied|api_key_invalid/i.test(text)) {
+    return {
+      status,
+      message:
+        'Gemini API key configuration error. Please check GEMINI_API_KEY in Settings > Secrets.',
+    };
+  }
+
+  if (status === 504 || /timed out|timeout|ETIMEDOUT/i.test(text)) {
+    return {
+      status: 504,
+      message: 'AI Tutor timed out while waiting for the model. Please tap Retry.',
+    };
+  }
+
+  return {
+    status: status >= 400 && status <= 599 ? status : 500,
+    message: text || 'AI service error. Please try again.',
+  };
+}
+
+function isRetryableGeminiError(err: unknown): boolean {
+  const errObj = err && typeof err === 'object' ? (err as Record<string, unknown>) : {};
+  const explicitStatus = typeof errObj.status === 'number' ? errObj.status : 0;
+  const rawMsg = err instanceof Error ? err.message : String(err || '');
+  const nested = extractNestedErrorDetails(rawMsg);
+  const code = explicitStatus || nested.code || 0;
+  const combined = `${rawMsg} ${nested.message || ''} ${nested.status || ''}`;
+
+  return (
+    code === 429 ||
+    code === 500 ||
+    code === 502 ||
+    code === 503 ||
+    code === 504 ||
+    /ECONNRESET|ETIMEDOUT|EAI_AGAIN|fetch failed|network|unavailable|RESOURCE_EXHAUSTED|high demand|overloaded|try again later/i.test(
+      combined
+    )
+  );
+}
+
+async function callGeminiWithRetry<T>(
+  fn: (model: string) => Promise<T>,
+  models: string[] = TEXT_MODELS
+): Promise<T> {
+  const delays = [650, 1450];
+  let lastErr: unknown;
+
+  for (let mIdx = 0; mIdx < models.length; mIdx++) {
+    const model = models[mIdx];
+    const maxRetries = mIdx === 0 ? delays.length : 1;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn(model);
+      } catch (err) {
+        lastErr = err;
+        if (!isRetryableGeminiError(err)) {
+          throw err;
+        }
+        if (attempt < maxRetries) {
+          const base = delays[Math.min(attempt, delays.length - 1)];
+          const jitter = Math.floor(Math.random() * 250);
+          await new Promise((r) => setTimeout(r, base + jitter));
+        }
+      }
+    }
+  }
+
   throw lastErr;
 }
 
@@ -162,12 +265,13 @@ async function fetchCourseBank(opts: {
   if (!opts.course) return '';
   try {
     const qRes = await fetch(
-      `${opts.supabaseUrl}/rest/v1/questions?course_code=eq.${encodeURIComponent(opts.course)}&status=eq.approved&select=year,semester,question_content(content)&order=year.desc&limit=8`,
+      `${opts.supabaseUrl}/rest/v1/questions?course_code=eq.${encodeURIComponent(opts.course)}&status=eq.approved&select=year,semester,question_content(content)&order=year.desc&limit=6`,
       {
         headers: {
           apikey: opts.supabaseAnonKey,
           Authorization: `Bearer ${opts.token}`,
         },
+        signal: AbortSignal.timeout(5000),
       }
     );
     if (!qRes.ok) return '';
@@ -186,7 +290,7 @@ async function fetchCourseBank(opts: {
       })
       .filter(Boolean)
       .join('\n\n')
-      .slice(0, 16000);
+      .slice(0, 12000);
   } catch {
     return '';
   }
@@ -197,7 +301,7 @@ export async function prepareAiChat(opts: AiChatInput): Promise<PreparedAiChat> 
   const course = String(opts.course || '').trim();
   const count = Math.min(20, Math.max(1, Number(opts.count) || 5));
   const instructions = String(opts.instructions || '').trim();
-  const cleanAttachment = String(opts.attachmentContext || '').trim().slice(0, 36000);
+  const cleanAttachment = String(opts.attachmentContext || '').trim().slice(0, 24000);
   const targetQuestion = String(opts.targetQuestion || '').trim();
 
   const [quota, bank] = await Promise.all([
@@ -264,9 +368,9 @@ export async function runAiChat(opts: AiChatInput): Promise<{
   const prep = await prepareAiChat(opts);
 
   if (prep.mode === 'quiz') {
-    const response = await callGeminiWithRetry(() =>
+    const response = await callGeminiWithRetry((model) =>
       prep.ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
+        model,
         contents: `Generate ${prep.count} multiple-choice questions.`,
         config: {
           systemInstruction: prep.systemInstruction,
@@ -299,9 +403,9 @@ export async function runAiChat(opts: AiChatInput): Promise<{
     const prompt = prep.targetQuestion
       ? `Give a detailed explanation for this specific question or topic:\n\n${prep.targetQuestion}`
       : 'Provide a detailed, step-by-step explanation covering the key questions and concepts in the provided material.';
-    const response = await callGeminiWithRetry(() =>
+    const response = await callGeminiWithRetry((model) =>
       prep.ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
+        model,
         contents: prompt,
         config: {
           systemInstruction: prep.systemInstruction,
@@ -316,9 +420,9 @@ export async function runAiChat(opts: AiChatInput): Promise<{
     };
   }
 
-  const response = await callGeminiWithRetry(() =>
+  const response = await callGeminiWithRetry((model) =>
     prep.ai.models.generateContent({
-      model: 'gemini-4-hydrogen',
+      model,
       contents: prep.contents,
       config: {
         systemInstruction: prep.systemInstruction,
@@ -336,6 +440,7 @@ export async function runAiChat(opts: AiChatInput): Promise<{
 
 export type AiChatStreamEvent =
   | { type: 'meta'; freeRemaining: number | null; freeLimit: number }
+  | { type: 'ping' }
   | { type: 'delta'; delta: string }
   | { type: 'done'; text: string; freeRemaining: number | null; freeLimit: number };
 
@@ -356,59 +461,86 @@ export async function* streamAiChat(
         : 'Provide a detailed, step-by-step explanation covering the key questions and concepts in the provided material.'
       : prep.contents;
 
-  const stream = await callGeminiWithRetry(() =>
-    prep.ai.models.generateContentStream({
-      model: 'gemini-4-hydrogen',
-      contents,
-      config: {
-        systemInstruction: prep.systemInstruction,
-        thinkingConfig: {
-          thinkingLevel: prep.mode === 'explain' ? ThinkingLevel.MEDIUM : ThinkingLevel.LOW,
-        },
-      },
-    })
-  );
-
   let fullText = '';
   let lastFinishReason = '';
   let blockReason = '';
+  let lastErr: unknown;
 
-  for await (const chunk of stream) {
-    if (isAborted?.()) return;
-    const c = chunk as {
-      text?: string;
-      promptFeedback?: { blockReason?: string; blockReasonMessage?: string };
-      candidates?: Array<{ finishReason?: string }>;
-    };
-    if (c?.promptFeedback?.blockReason) {
-      blockReason = c.promptFeedback.blockReasonMessage || c.promptFeedback.blockReason;
-    }
-    if (c?.candidates?.[0]?.finishReason) {
-      lastFinishReason = c.candidates[0].finishReason;
-    }
-    const piece = typeof c?.text === 'string' ? c.text : '';
-    if (piece) {
-      fullText += piece;
-      yield { type: 'delta', delta: piece };
+  for (let mIdx = 0; mIdx < TEXT_MODELS.length; mIdx++) {
+    const model = TEXT_MODELS[mIdx];
+    const maxAttempts = mIdx === 0 ? 2 : 1;
+
+    for (let attempt = 0; attempt <= maxAttempts; attempt++) {
+      if (isAborted?.()) return;
+      try {
+        const stream = await prep.ai.models.generateContentStream({
+          model,
+          contents,
+          config: {
+            systemInstruction: prep.systemInstruction,
+            thinkingConfig: {
+              thinkingLevel: ThinkingLevel.LOW,
+            },
+          },
+        });
+
+        for await (const chunk of stream) {
+          if (isAborted?.()) return;
+          const c = chunk as {
+            text?: string;
+            promptFeedback?: { blockReason?: string; blockReasonMessage?: string };
+            candidates?: Array<{ finishReason?: string }>;
+          };
+          if (c?.promptFeedback?.blockReason) {
+            blockReason = c.promptFeedback.blockReasonMessage || c.promptFeedback.blockReason;
+          }
+          if (c?.candidates?.[0]?.finishReason) {
+            lastFinishReason = c.candidates[0].finishReason;
+          }
+          const piece = typeof c?.text === 'string' ? c.text : '';
+          if (piece) {
+            fullText += piece;
+            yield { type: 'delta', delta: piece };
+          } else {
+            yield { type: 'ping' };
+          }
+        }
+
+        if (fullText.trim()) {
+          yield {
+            type: 'done',
+            text: fullText.trim(),
+            freeRemaining: prep.freeRemaining,
+            freeLimit: prep.freeLimit,
+          };
+          return;
+        }
+        break;
+      } catch (err) {
+        lastErr = err;
+        // If partial answer already started streaming or error isn't transient, don't retry silently
+        if (fullText.trim() || !isRetryableGeminiError(err)) {
+          throw err;
+        }
+        yield { type: 'ping' };
+        if (attempt < maxAttempts) {
+          const waitMs = (attempt === 0 ? 700 : 1400) + Math.floor(Math.random() * 250);
+          await new Promise((r) => setTimeout(r, waitMs));
+        }
+      }
     }
   }
 
-  if (!fullText.trim()) {
-    if (blockReason) {
-      throw new Error(`Gemini blocked this request (${blockReason}). Try rephrasing your question.`);
-    }
-    if (lastFinishReason && lastFinishReason !== 'STOP') {
-      throw new Error(`Gemini stopped before generating a reply (${lastFinishReason}). Please try again.`);
-    }
-    throw new Error('Gemini returned an empty response. Please try again.');
+  if (blockReason) {
+    throw new Error(`Gemini blocked this request (${blockReason}). Try rephrasing your question.`);
   }
-
-  yield {
-    type: 'done',
-    text: fullText.trim(),
-    freeRemaining: prep.freeRemaining,
-    freeLimit: prep.freeLimit,
-  };
+  if (lastFinishReason && lastFinishReason !== 'STOP') {
+    throw new Error(`Gemini stopped before generating a reply (${lastFinishReason}). Please try again.`);
+  }
+  if (lastErr) {
+    throw lastErr;
+  }
+  throw new Error('Gemini returned an empty response. Please try again.');
 }
 
 const memoryFreeAiUsage = new Map<string, number>();
@@ -439,6 +571,7 @@ export async function checkAndConsumeAiQuota(opts: {
         'Content-Type': 'application/json',
       },
       body: '{}',
+      signal: AbortSignal.timeout(7000),
     });
     if (rpcRes.ok) {
       const rpc = (await rpcRes.json()) as {
@@ -467,15 +600,16 @@ export async function checkAndConsumeAiQuota(opts: {
   const [profRes, admRes, setRes] = await Promise.all([
     fetch(
       `${opts.supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(opts.userId)}&select=premium_until`,
-      { headers }
+      { headers, signal: AbortSignal.timeout(7000) }
     ),
     fetch(
       `${opts.supabaseUrl}/rest/v1/admins?user_id=eq.${encodeURIComponent(opts.userId)}&select=user_id`,
-      { headers }
+      { headers, signal: AbortSignal.timeout(7000) }
     ),
-    fetch(`${opts.supabaseUrl}/rest/v1/app_settings?id=eq.1&select=free_ai_limit`, { headers }).catch(
-      () => null
-    ),
+    fetch(`${opts.supabaseUrl}/rest/v1/app_settings?id=eq.1&select=free_ai_limit`, {
+      headers,
+      signal: AbortSignal.timeout(7000),
+    }).catch(() => null),
   ]);
 
   const profRows = profRes.ok
@@ -1086,50 +1220,54 @@ export async function processUploadedMaterial(opts: {
       throw new Error('No clear speech was detected in the audio file.');
     }
 
-    const analyzeRes = await ai.models.generateContent({
-      model: 'gemini-4-hydrogen',
-      contents: `Analyze this transcribed university lecture/past-question audio (${opts.fileName}):\n\n${transcript}`,
-      config: {
-        systemInstruction:
-          'You are a KNUST academic archivist. Organize the spoken transcript into clean readable text (preserving all questions and formulas), summarize key points, list distinct questions detected, and extract metadata (department, course_code, course_title, year, semester, description) only if mentioned in the audio (otherwise leave empty/0).',
-        responseMimeType: 'application/json',
-        responseSchema: STRUCTURED_SCHEMA,
-      },
-    });
+    const analyzeRes = await callGeminiWithRetry((model) =>
+      ai.models.generateContent({
+        model,
+        contents: `Analyze this transcribed university lecture/past-question audio (${opts.fileName}):\n\n${transcript}`,
+        config: {
+          systemInstruction:
+            'You are a KNUST academic archivist. Organize the spoken transcript into clean readable text (preserving all questions and formulas), summarize key points, list distinct questions detected, and extract metadata (department, course_code, course_title, year, semester, description) only if mentioned in the audio (otherwise leave empty/0).',
+          responseMimeType: 'application/json',
+          responseSchema: STRUCTURED_SCHEMA,
+        },
+      })
+    );
     structuredRaw = analyzeRes.text ?? '{}';
   } else if (category === 'video') {
     mediaType = 'video';
     const mediaHandle = await uploadToGeminiFilesIfLarge(ai, buffer, opts.fileName, resolvedMime);
     try {
-      const videoRes = await ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: {
-          parts: [
-            mediaHandle.part,
-            {
-              text: `Analyze this uploaded academic video (${opts.fileName}).
+      const videoRes = await callGeminiWithRetry((model) =>
+        ai.models.generateContent({
+          model,
+          contents: {
+            parts: [
+              mediaHandle.part,
+              {
+                text: `Analyze this uploaded academic video (${opts.fileName}).
 1. Transcribe all spoken words verbatim in "transcript".
 2. Also capture any visible board/slide text, equations, and past questions shown on screen, combining them cleanly into "cleanedText".
 3. List every individual question or practice problem detected in "questionsDetected".
 4. Infer KNUST metadata (department, course_code, course_title, year, semester, description) if shown or mentioned.`,
-            },
-          ],
-        },
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              ...STRUCTURED_SCHEMA.properties,
-              transcript: {
-                type: Type.STRING,
-                description: 'Full verbatim spoken transcript from the video audio.',
               },
-            },
-            required: ['cleanedText', 'transcript', 'summary', 'questionsDetected'],
+            ],
           },
-        },
-      });
+          config: {
+            responseMimeType: 'application/json',
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                ...STRUCTURED_SCHEMA.properties,
+                transcript: {
+                  type: Type.STRING,
+                  description: 'Full verbatim spoken transcript from the video audio.',
+                },
+              },
+              required: ['cleanedText', 'transcript', 'summary', 'questionsDetected'],
+            },
+          },
+        })
+      );
       structuredRaw = videoRes.text ?? '{}';
     } finally {
       await mediaHandle.cleanup?.();
@@ -1142,36 +1280,40 @@ export async function processUploadedMaterial(opts: {
         const ocrHint = preprocessed
           ? `\n\nPre-processed client-side OCR / PDF text extracted from the file (use the visual file to verify formulas, diagrams, and fix any OCR typos):\n${preprocessed.slice(0, 60000)}`
           : '';
-        const docRes = await ai.models.generateContent({
-          model: 'gemini-4-hydrogen',
-          contents: {
-            parts: [
-              fileHandle.part,
-              {
-                text: `Extract ALL written questions, instructions, mark allocations, formulas, and study content verbatim from "${opts.fileName}". Organize cleanly in "cleanedText", list each distinct question in "questionsDetected", summarize in "summary", and extract course metadata (department, course_code, course_title, year, semester, description) if present.${ocrHint}`,
-              },
-            ],
-          },
-          config: {
-            responseMimeType: 'application/json',
-            responseSchema: STRUCTURED_SCHEMA,
-          },
-        });
+        const docRes = await callGeminiWithRetry((model) =>
+          ai.models.generateContent({
+            model,
+            contents: {
+              parts: [
+                fileHandle.part,
+                {
+                  text: `Extract ALL written questions, instructions, mark allocations, formulas, and study content verbatim from "${opts.fileName}". Organize cleanly in "cleanedText", list each distinct question in "questionsDetected", summarize in "summary", and extract course metadata (department, course_code, course_title, year, semester, description) if present.${ocrHint}`,
+                },
+              ],
+            },
+            config: {
+              responseMimeType: 'application/json',
+              responseSchema: STRUCTURED_SCHEMA,
+            },
+          })
+        );
         structuredRaw = docRes.text ?? '{}';
       } finally {
         await fileHandle.cleanup?.();
       }
     } else {
-      const docRes = await ai.models.generateContent({
-        model: 'gemini-4-hydrogen',
-        contents: `Client-side extracted / OCR text from "${opts.fileName}":\n\n${preprocessed.slice(0, 80000)}`,
-        config: {
-          systemInstruction:
-            'You are a KNUST academic archivist. Clean up any OCR line-break or spelling artifacts while keeping all examination questions, numbering, mark allocations, and equations intact in "cleanedText", list each distinct question in "questionsDetected", write a concise "summary", and extract metadata (department, course_code, course_title, year, semester, description) if present.',
-          responseMimeType: 'application/json',
-          responseSchema: STRUCTURED_SCHEMA,
-        },
-      });
+      const docRes = await callGeminiWithRetry((model) =>
+        ai.models.generateContent({
+          model,
+          contents: `Client-side extracted / OCR text from "${opts.fileName}":\n\n${preprocessed.slice(0, 80000)}`,
+          config: {
+            systemInstruction:
+              'You are a KNUST academic archivist. Clean up any OCR line-break or spelling artifacts while keeping all examination questions, numbering, mark allocations, and equations intact in "cleanedText", list each distinct question in "questionsDetected", write a concise "summary", and extract metadata (department, course_code, course_title, year, semester, description) if present.',
+            responseMimeType: 'application/json',
+            responseSchema: STRUCTURED_SCHEMA,
+          },
+        })
+      );
       structuredRaw = docRes.text ?? '{}';
     }
   } else {
@@ -1200,16 +1342,18 @@ export async function processUploadedMaterial(opts: {
       throw new Error(`No readable text was found inside ${opts.fileName}.`);
     }
 
-    const docRes = await ai.models.generateContent({
-      model: 'gemini-4-hydrogen',
-      contents: `Extracted raw content from "${opts.fileName}":\n\n${rawText.slice(0, 80000)}`,
-      config: {
-        systemInstruction:
-          'You are a KNUST academic archivist. Clean and format all questions, slides, and notes from the uploaded document into "cleanedText" without omitting questions or equations, extract individual questions into "questionsDetected", write a concise "summary", and extract metadata (department, course_code, course_title, year, semester, description) if present.',
-        responseMimeType: 'application/json',
-        responseSchema: STRUCTURED_SCHEMA,
-      },
-    });
+    const docRes = await callGeminiWithRetry((model) =>
+      ai.models.generateContent({
+        model,
+        contents: `Extracted raw content from "${opts.fileName}":\n\n${rawText.slice(0, 80000)}`,
+        config: {
+          systemInstruction:
+            'You are a KNUST academic archivist. Clean and format all questions, slides, and notes from the uploaded document into "cleanedText" without omitting questions or equations, extract individual questions into "questionsDetected", write a concise "summary", and extract metadata (department, course_code, course_title, year, semester, description) if present.',
+          responseMimeType: 'application/json',
+          responseSchema: STRUCTURED_SCHEMA,
+        },
+      })
+    );
     structuredRaw = docRes.text ?? '{}';
   }
 

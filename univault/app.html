@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><script>try{if(localStorage.getItem("uv_theme")==="light")document.documentElement.dataset.theme="light"}catch{}</script><title>UniVault — Past Examination Archive</title><link rel="icon" type="image/png" href="assets/knust-crest.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="styles.css"></head><body class="app-page" data-async-view="true">
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><script>try{if(localStorage.getItem("uv_theme")==="light")document.documentElement.dataset.theme="light"}catch{}</script><title>UniVault — Past Examination Archive</title><meta name="theme-color" content="#09111e"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="UniVault"><link rel="manifest" href="manifest.webmanifest"><link rel="icon" type="image/png" href="assets/knust-crest.png"><link rel="apple-touch-icon" href="assets/apple-touch-icon.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="styles.css"></head><body class="app-page" data-async-view="true">
 <div class="app-bg" aria-hidden="true"></div>
 <div class="aura"><i></i><i></i><i></i></div>
 <header class="app-header">
@@ -12,7 +12,7 @@
 <div class="drawer-acct"><span>Account</span><small id="badge" class="acct-status"></small></div>
 <nav aria-label="Main navigation"><button data-v="browse" class="on">Questions</button><button data-v="dashboard">Dashboard</button><button data-v="chat">AI Tutor</button><button data-v="quiz">Quiz</button><button data-v="upload">Upload &amp; Earn</button><button data-v="wallet">Wallet</button><button data-v="pricing">Premium</button></nav>
 <div class="drawer-sep"></div>
-<div class="drawer-footer"><button id="startTourBtn" type="button" class="ghost drawer-out">Website Tour</button><button id="out" type="button" class="ghost drawer-out">Sign out</button></div>
+<div class="drawer-footer"><button id="installAppBtn" type="button" class="ghost drawer-out" data-pwa-install hidden>Install App</button><button id="startTourBtn" type="button" class="ghost drawer-out">Website Tour</button><button id="out" type="button" class="ghost drawer-out">Sign out</button></div>
 </div>
 </header>
 <main>
@@ -69,29 +69,47 @@
 <div id="dashList" class="row-list"></div>
 </section>
 <section id="chat" hidden>
-<h1>AI Tutor</h1>
-<div class="bar">
-<select class="courses" id="chatCourse"></select>
-<button id="predict" type="button" class="ghost">Predict lecturer's style</button>
-<button id="explainBtn" type="button" class="ghost">Detailed explanation</button>
-<input id="chatFile" type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.mp3,.wav,.m4a,.aac,.ogg,.mp4,.webm,.mov,.txt,.png,.jpg,.jpeg,.webp" hidden>
-<button id="chatFileBtn" type="button" class="ghost">Upload File / Image / Audio / Video</button>
+<div class="chat-head">
+  <div class="chat-head-copy">
+    <h1>AI Tutor</h1>
+    <small id="aiQuotaLabel" class="ai-quota"></small>
+  </div>
+  <div class="chat-head-actions">
+    <button id="clearChatBtn" type="button" class="ghost chat-clear-btn">Clear chat</button>
+  </div>
 </div>
-<div id="chatAttachmentBar" class="attach-bar" hidden>
-<div class="attach-meta">
-<strong id="chatAttachmentName"></strong>
-<small id="chatAttachmentInfo"></small>
+<div class="chat-shell glass">
+  <div class="chat-toolbar">
+    <select class="courses" id="chatCourse" aria-label="Select course context"></select>
+    <div class="chat-toolbar-btns">
+      <button id="predict" type="button" class="ghost">Predict lecturer's style</button>
+      <button id="explainBtn" type="button" class="ghost">Detailed explanation</button>
+      <input id="chatFile" type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.mp3,.wav,.m4a,.aac,.ogg,.mp4,.webm,.mov,.txt,.png,.jpg,.jpeg,.webp" hidden>
+      <button id="chatFileBtn" type="button" class="ghost">Upload File / Media</button>
+    </div>
+  </div>
+  <div class="chat-prompts" aria-label="Quick study prompts">
+    <button type="button" class="ghost chat-prompt-btn" data-prompt="Summarize the key concepts and formulas tested most often in this course.">Key concepts &amp; formulas</button>
+    <button type="button" class="ghost chat-prompt-btn" data-prompt="What common mistakes do students make on this course's exam questions, and how can I avoid them?">Common exam mistakes</button>
+    <button type="button" class="ghost chat-prompt-btn" data-prompt="Give me a representative exam-style question for this course and walk through the full marking-scheme solution.">Sample exam walkthrough</button>
+  </div>
+  <div id="chatAttachmentBar" class="attach-bar" hidden>
+    <div class="attach-meta">
+      <strong id="chatAttachmentName"></strong>
+      <small id="chatAttachmentInfo"></small>
+    </div>
+    <div class="attach-actions">
+      <select id="chatDetectedQ" hidden aria-label="Select a question from the uploaded file to explain"></select>
+      <button id="explainAttachedBtn" type="button" class="ghost">Explain selected question</button>
+      <button id="clearChatFile" type="button" class="ghost">Remove</button>
+    </div>
+  </div>
+  <div id="log" role="log" aria-live="polite" aria-label="AI Tutor conversation"></div>
+  <div class="chat-dock">
+    <div class="bar chat-composer"><input id="msg" placeholder="Ask a question, paste a past paper problem, or tap Voice..."><button id="micBtn" type="button" class="ghost mic-btn" aria-label="Record question with microphone" aria-pressed="false" title="Speak your question using microphone"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg><span id="micBtnLabel">Voice</span></button><button id="send" type="button">Send</button></div>
+    <small id="micStatus" class="mic-status" hidden role="status"></small>
+  </div>
 </div>
-<div class="attach-actions">
-<select id="chatDetectedQ" hidden aria-label="Select a question from the uploaded file to explain"></select>
-<button id="explainAttachedBtn" type="button" class="ghost">Explain selected question</button>
-<button id="clearChatFile" type="button" class="ghost">Remove</button>
-</div>
-</div>
-<small id="aiQuotaLabel" class="ai-quota"></small>
-<div id="log" class="glass"></div>
-<div class="bar chat-composer"><input id="msg" placeholder="Ask, paste, or tap Voice to record a question..."><button id="micBtn" type="button" class="ghost mic-btn" aria-label="Record question with microphone" aria-pressed="false" title="Speak your question using microphone"><svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg><span id="micBtnLabel">Voice</span></button><button id="send" type="button">Send</button></div>
-<small id="micStatus" class="mic-status" hidden role="status"></small>
 </section>
 <section id="quiz" hidden><h1>Quiz Lab</h1><div class="glass form"><select class="courses" id="quizCourse"></select><input id="count" type="number" min="3" max="15" value="5"><textarea id="instr" placeholder="What should the AI set? e.g. Only calculation questions, hard level"></textarea><button id="gen" type="button">Generate quiz</button></div><div id="quizOut"></div></section>
 <section id="upload" hidden>

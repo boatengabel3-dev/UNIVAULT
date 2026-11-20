@@ -1,0 +1,32 @@
+{
+  "id": "/",
+  "name": "UniVault — KNUST Academic Archive",
+  "short_name": "UniVault",
+  "description": "KNUST past examination papers, AI tutor explanations, practice quizzes, and offline study archive.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "theme_color": "#09111e",
+  "background_color": "#09111e",
+  "icons": [
+    {
+      "src": "/assets/pwa-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/pwa-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/assets/pwa-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

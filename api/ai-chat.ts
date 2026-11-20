@@ -61,6 +61,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const userRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
       headers: { apikey: supabaseAnonKey, Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(8000),
     });
     if (!userRes.ok) {
       res.status(401).json({ error: 'Please sign in first.' });
@@ -96,7 +97,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
-    const prep = await prepareAiChat(input);
     let closed = false;
     req.on('close', () => {
       closed = true;
@@ -110,12 +110,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.flushHeaders?.();
     headersSentForStream = true;
 
-    for await (const ev of streamAiChat(prep, () => closed || res.writableEnded)) {
-      if (closed || res.writableEnded) break;
-      res.write(`data: ${JSON.stringify(ev)}\n\n`);
-    }
-    if (!res.writableEnded) {
-      res.end();
+    const keepalive = setInterval(() => {
+      if (!closed && !res.writableEnded) {
+        res.write(`data: ${JSON.stringify({ type: 'ping' })}\n\n`);
+      }
+    }, 4000);
+
+    try {
+      const prep = await prepareAiChat(input);
+      for await (const ev of streamAiChat(prep, () => closed || res.writableEnded)) {
+        if (closed || res.writableEnded) break;
+        res.write(`data: ${JSON.stringify(ev)}\n\n`);
+      }
+      if (!res.writableEnded) {
+        res.end();
+      }
+    } finally {
+      clearInterval(keepalive);
     }
   } catch (err: unknown) {
     const errObj = err && typeof err === 'object' ? (err as Record<string, unknown>) : {};

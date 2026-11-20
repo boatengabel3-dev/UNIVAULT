@@ -1,4 +1,61 @@
-let Q = [], user = null, P = {}, hist = [], cur = null, quiz = [], myUploads = [], myPayouts = [], dashStatus = "all", activeAttachment = null, dupCheckTimer = null, isAdminUser = false, lastUploadBody = "", appSettings = { price_ghs: Number(C.PRICE_GHS || 30), free_ai_limit: 5 };
+let Q = [], user = null, P = {}, hist = [], cur = null, quiz = [], myUploads = [], myPayouts = [], dashStatus = "all", activeAttachment = null, dupCheckTimer = null, isAdminUser = false, lastUploadBody = "", isUsingOfflineCache = false, appSettings = { price_ghs: Number(C.PRICE_GHS || 30), free_ai_limit: 5 };
+
+function getOfflineKey(kind) {
+  const uid = user?.id || "anon";
+  return `uv_offline_${kind}_${uid}`;
+}
+
+function readOfflineJson(kind, fallback = null) {
+  try {
+    const raw = localStorage.getItem(getOfflineKey(kind));
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeOfflineJson(kind, value) {
+  try {
+    localStorage.setItem(getOfflineKey(kind), JSON.stringify(value));
+  } catch {}
+}
+
+function getOfflinePapersMap() {
+  const data = readOfflineJson("papers", {});
+  return data && typeof data === "object" ? data : {};
+}
+
+function saveOfflinePaper(paper, content) {
+  if (!paper?.id || !content) return;
+  const map = getOfflinePapersMap();
+  map[paper.id] = {
+    id: paper.id,
+    course_code: paper.course_code,
+    year: paper.year,
+    semester: paper.semester || null,
+    content,
+    savedAt: Date.now(),
+  };
+  const entries = Object.entries(map);
+  if (entries.length > 80) {
+    entries.sort((a, b) => Number(a[1]?.savedAt || 0) - Number(b[1]?.savedAt || 0));
+    while (entries.length > 80) entries.shift();
+  }
+  writeOfflineJson("papers", Object.fromEntries(entries));
+}
+
+function getOfflinePaper(id) {
+  if (!id) return null;
+  const map = getOfflinePapersMap();
+  return map[id] || null;
+}
+
+function clearUserOfflineData() {
+  try {
+    ["q", "meta", "papers"].forEach((k) => localStorage.removeItem(getOfflineKey(k)));
+  } catch {}
+  window.uvPwa?.clearUserCache?.();
+}
 
 function setMenuOpen(open) {
   const menu = $("#navMenu"), btn = $("#menuBtn");
@@ -45,10 +102,7 @@ function show(v, skipTransition = false) {
     });
     syncUrlParams({ view: v === "browse" ? null : v, ...(v !== "browse" ? { paper: null } : {}) });
     if (v === "chat" && $("#log") && $("#log").children.length === 0) {
-      bub(
-        "AI Tutor is ready. Ask any KNUST exam question, pick a course above to use its past papers, click Predict lecturer's style, or upload a PDF/image/audio/video.",
-        "a"
-      );
+      renderWelcomeChatMessage();
     }
     window.uvRevealObserve?.(targetSection);
   };
@@ -101,8 +155,7 @@ const initialParams = new URLSearchParams(location.search);
       return location.replace("signup.html?next=" + encodeURIComponent(nextDest));
     }
     user = session.user;
-    await refresh();
-    await load();
+    await Promise.allSettled([refresh(), load()]);
 
     const initView = initialParams.get("view");
     const initPaper = initialParams.get("paper");
@@ -131,7 +184,10 @@ if ($("#startTourBtn")) {
 }
 
 $("#out").onclick = async () => {
-  await sb.auth.signOut();
+  clearUserOfflineData();
+  try {
+    await sb.auth.signOut();
+  } catch {}
   if (typeof uvTransition !== "undefined") {
     uvTransition.go("index.html", "Signing out...");
   } else {
@@ -261,55 +317,83 @@ function updatePricingAndQuotaUi(remainingOverride) {
 }
 
 async function refresh() {
-  const [{ data }, settingsRes, adminRes] = await Promise.all([
-    sb.from("profiles").select("*").single(),
-    sb.from("app_settings").select("price_ghs,free_ai_limit").eq("id", 1).maybeSingle(),
-    sb.from("admins").select("user_id").eq("user_id", user.id).maybeSingle(),
-  ]);
-  P = data || {};
-  P.on = P.premium_until && new Date(P.premium_until) > new Date();
-  isAdminUser = Boolean(adminRes?.data);
-  if (settingsRes?.data) {
-    appSettings = {
-      price_ghs: Number(settingsRes.data.price_ghs) || 30,
-      free_ai_limit:
-        settingsRes.data.free_ai_limit !== null && settingsRes.data.free_ai_limit !== undefined
-          ? Number(settingsRes.data.free_ai_limit)
-          : 5,
-    };
+  try {
+    const [profRes, settingsRes, adminRes] = await Promise.all([
+      sb.from("profiles").select("*").single(),
+      sb.from("app_settings").select("price_ghs,free_ai_limit").eq("id", 1).maybeSingle(),
+      sb.from("admins").select("user_id").eq("user_id", user.id).maybeSingle(),
+    ]);
+    if (profRes.error && !profRes.data) throw profRes.error;
+    P = profRes.data || {};
+    P.on = P.premium_until && new Date(P.premium_until) > new Date();
+    isAdminUser = Boolean(adminRes?.data);
+    if (settingsRes?.data) {
+      appSettings = {
+        price_ghs: Number(settingsRes.data.price_ghs) || 30,
+        free_ai_limit:
+          settingsRes.data.free_ai_limit !== null && settingsRes.data.free_ai_limit !== undefined
+            ? Number(settingsRes.data.free_ai_limit)
+            : 5,
+      };
+    }
+
+    const [poRes, mRes] = await Promise.all([
+      sb.from("payouts").select("*").order("created_at", { ascending: false }),
+      sb.from("questions").select("*").eq("uploader", user.id).order("created_at", { ascending: false }),
+    ]);
+    myPayouts = poRes.data || [];
+    myUploads = mRes.data || [];
+    writeOfflineJson("meta", { P, isAdminUser, appSettings, myPayouts, myUploads });
+  } catch {
+    const cached = readOfflineJson("meta");
+    if (cached && typeof cached === "object") {
+      P = cached.P || {};
+      P.on = P.premium_until && new Date(P.premium_until) > new Date();
+      isAdminUser = Boolean(cached.isAdminUser);
+      if (cached.appSettings) appSettings = cached.appSettings;
+      myPayouts = Array.isArray(cached.myPayouts) ? cached.myPayouts : [];
+      myUploads = Array.isArray(cached.myUploads) ? cached.myUploads : [];
+    }
   }
+
   updatePricingAndQuotaUi();
-  $("#bal").textContent = fmt(P.balance || 0);
-
-  const { data: po } = await sb
-    .from("payouts")
-    .select("*")
-    .order("created_at", { ascending: false });
-  myPayouts = po || [];
-  $("#pays").innerHTML = myPayouts
-    .map((p) => `<p>${fmt(p.amount)} · ${esc(p.status)}</p>`)
-    .join("");
-
-  const { data: m } = await sb
-    .from("questions")
-    .select("*")
-    .eq("uploader", user.id)
-    .order("created_at", { ascending: false });
-  myUploads = m || [];
-  $("#mine").innerHTML = myUploads
-    .map((q) => `<p>${esc(q.course_code)} ${q.year} · ${esc(q.status)}</p>`)
-    .join("");
-
+  if ($("#bal")) $("#bal").textContent = fmt(P.balance || 0);
+  if ($("#pays")) {
+    $("#pays").innerHTML = myPayouts
+      .map((p) => `<p>${fmt(p.amount)} · ${esc(p.status)}</p>`)
+      .join("");
+  }
+  if ($("#mine")) {
+    $("#mine").innerHTML = myUploads
+      .map((q) => `<p>${esc(q.course_code)} ${q.year} · ${esc(q.status)}</p>`)
+      .join("");
+  }
   renderDashboard();
 }
 
 async function load() {
-  const { data } = await sb
-    .from("questions")
-    .select("*")
-    .eq("status", "approved")
-    .order("year", { ascending: false });
-  Q = data || [];
+  isUsingOfflineCache = false;
+  try {
+    const { data, error } = await sb
+      .from("questions")
+      .select("*")
+      .eq("status", "approved")
+      .order("year", { ascending: false });
+    if (error || !Array.isArray(data)) {
+      throw error || new Error("Could not fetch past papers.");
+    }
+    Q = data;
+    writeOfflineJson("q", { items: Q, savedAt: Date.now() });
+  } catch {
+    const cached = readOfflineJson("q");
+    if (cached && Array.isArray(cached.items)) {
+      Q = cached.items;
+      isUsingOfflineCache = true;
+    } else {
+      Q = [];
+    }
+  }
+
   const deps = [...new Set(Q.map((q) => q.department))].sort();
   const codes = [...new Set(Q.map((q) => q.course_code))].sort();
   if ($("#homeStatPapers")) $("#homeStatPapers").textContent = String(Q.length);
@@ -339,6 +423,8 @@ function render(syncUrl = true) {
     raw = $("#search").value.trim(),
     t = raw.toLowerCase(),
     by = {};
+  const offlinePapers = getOfflinePapersMap();
+  const offlineCount = Q.filter((q) => Boolean(offlinePapers[q.id]?.content)).length;
   $("#clearSearch").hidden = !d && !raw;
   if (syncUrl) {
     syncUrlParams({ dep: d || null, q: raw || null });
@@ -356,18 +442,23 @@ function render(syncUrl = true) {
       (by[q.course_code] ??= { t: q.course_title, d: q.department, desc: q.description, i: [] }).i.push(q)
   );
   const courses = Object.entries(by);
+  const offlineSuffix =
+    offlineCount > 0 ? ` · ${offlineCount} paper${offlineCount === 1 ? "" : "s"} saved offline` : "";
+  const cacheModeSuffix = isUsingOfflineCache ? " · Offline cache" : "";
   $("#browseMeta").textContent = Q.length
-    ? `Showing ${courses.length} course${courses.length === 1 ? "" : "s"} · ${filtered.length} paper${filtered.length === 1 ? "" : "s"}`
-    : "No approved questions published yet.";
+    ? `Showing ${courses.length} course${courses.length === 1 ? "" : "s"} · ${filtered.length} paper${filtered.length === 1 ? "" : "s"}${offlineSuffix}${cacheModeSuffix}`
+    : isUsingOfflineCache
+      ? "Offline mode — no previously cached questions found yet."
+      : "No approved questions published yet.";
   $("#list").innerHTML =
     courses
       .map(
         ([c, v]) =>
           `<article class="card archive-card uv-reveal"><div><div class="card-meta"><span>${esc(v.d)}</span><span class="card-count">${v.i.length} paper${v.i.length === 1 ? "" : "s"}</span></div><h3>${esc(c)}<span>${esc(v.t || "Past Examination Papers")}</span></h3>${v.desc ? `<p class="card-note">${esc(v.desc)}</p>` : ""}</div><div class="chips">${v.i
-            .map(
-              (q) =>
-                `<button data-id="${q.id}">${q.year}${q.semester ? " · S" + q.semester : ""}</button>`
-            )
+            .map((q) => {
+              const saved = Boolean(offlinePapers[q.id]?.content);
+              return `<button type="button" data-id="${q.id}"${saved ? ' data-cached="1" title="Available offline"' : ""}>${q.year}${q.semester ? " · S" + q.semester : ""}</button>`;
+            })
             .join("")}</div></article>`
       )
       .join("") ||
@@ -389,21 +480,56 @@ async function openPaperById(id) {
   cur = found;
   syncUrlParams({ paper: id, view: null });
   $("#rt").textContent = `${cur.course_code} · ${cur.year}${cur.semester ? " Sem " + cur.semester : ""}`;
-  const { data } = await sb
-    .from("question_content")
-    .select("content")
-    .eq("question_id", id)
-    .maybeSingle();
-  cur.content = data?.content;
-  $("#rb").textContent = data
-    ? data.content
-    : `Subscribe for GH₵${formatPriceGhs(C.PRICE_GHS)}/month to read this paper.`;
-  $("#solve").hidden = !data;
-  if (!$("#reader").open) $("#reader").showModal();
-  if (!data) {
-    $("#reader").close();
-    show("pricing");
+
+  let content = null;
+  let networkFailed = false;
+  try {
+    const { data, error } = await sb
+      .from("question_content")
+      .select("content")
+      .eq("question_id", id)
+      .maybeSingle();
+    if (error) {
+      networkFailed = true;
+    } else if (data?.content) {
+      content = data.content;
+      saveOfflinePaper(cur, content);
+      render(false);
+    }
+  } catch {
+    networkFailed = true;
   }
+
+  if (!content) {
+    const cachedPaper = getOfflinePaper(id);
+    if (cachedPaper?.content && (networkFailed || navigator.onLine === false)) {
+      content = cachedPaper.content;
+    }
+  }
+
+  cur.content = content;
+  if (content) {
+    $("#rb").textContent = content;
+    $("#solve").hidden = false;
+    if ($("#explainPaper")) $("#explainPaper").hidden = false;
+    if (!$("#reader").open) $("#reader").showModal();
+    return;
+  }
+
+  if (networkFailed || navigator.onLine === false) {
+    $("#rb").textContent =
+      "You are offline and this paper has not been loaded on this device yet. Reconnect to load it once and save it for offline study.";
+    $("#solve").hidden = true;
+    if ($("#explainPaper")) $("#explainPaper").hidden = true;
+    if (!$("#reader").open) $("#reader").showModal();
+    return;
+  }
+
+  $("#rb").textContent = `Subscribe for GH₵${formatPriceGhs(C.PRICE_GHS)}/month to read this paper.`;
+  $("#solve").hidden = true;
+  if (!$("#reader").open) $("#reader").showModal();
+  $("#reader").close();
+  show("pricing");
 }
 
 $("#list").onclick = (e) => {
@@ -601,9 +727,13 @@ function setActiveAttachment(data) {
 }
 
 function setAiBusy(busy) {
-  ["#send", "#predict", "#explainBtn", "#explainAttachedBtn"].forEach((sel) => {
+  const isBusy = Boolean(busy);
+  ["#send", "#predict", "#explainBtn", "#explainAttachedBtn", "#clearChatBtn"].forEach((sel) => {
     const el = $(sel);
-    if (el) el.disabled = Boolean(busy);
+    if (el) el.disabled = isBusy;
+  });
+  document.querySelectorAll(".chat-prompt-btn").forEach((btn) => {
+    btn.disabled = isBusy;
   });
 }
 
@@ -627,9 +757,14 @@ async function getValidAccessToken(forceRefresh = false) {
   return "";
 }
 
-async function ai(body, onChunk) {
+async function ai(body, onChunk, onStatus) {
   if (!isValidSupabaseUrl) {
     throw new Error("Supabase is not configured. Set SUPABASE_URL and SUPABASE_ANON_KEY.");
+  }
+  if (typeof navigator !== "undefined" && navigator.onLine === false) {
+    throw new Error(
+      "You are currently offline. Reconnect to use AI Tutor — previously loaded past papers remain available under Questions."
+    );
   }
 
   const syncQuotaFromResponse = (payload) => {
@@ -649,15 +784,15 @@ async function ai(body, onChunk) {
 
   const wantsStream = typeof onChunk === "function" && body.mode !== "quiz";
 
-  const callLocalApi = async (accessToken, ctrl) =>
+  const callLocalApi = async (accessToken, ctrl, useStream) =>
     fetch("/api/ai-chat", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Accept: wantsStream ? "text/event-stream, application/json" : "application/json",
+        Accept: useStream ? "text/event-stream, application/json" : "application/json",
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify(wantsStream ? { ...body, stream: true } : body),
+      body: JSON.stringify(useStream ? { ...body, stream: true } : { ...body, stream: false }),
       signal: ctrl?.signal,
     });
 
@@ -665,22 +800,25 @@ async function ai(body, onChunk) {
   let shouldTryEdgeFallback = false;
   let gotServerResponse = false;
 
+  const FIRST_TOKEN_TIMEOUT_MS = 75000;
+  const CHUNK_TIMEOUT_MS = 35000;
+  const startedAt = Date.now();
   const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-  let timer = ctrl ? setTimeout(() => ctrl.abort(), 35000) : null;
-  const resetTimer = (ms = 35000) => {
+  let timer = ctrl ? setTimeout(() => ctrl.abort(), FIRST_TOKEN_TIMEOUT_MS) : null;
+  const resetTimer = (ms = FIRST_TOKEN_TIMEOUT_MS) => {
     if (!ctrl) return;
     if (timer) clearTimeout(timer);
     timer = setTimeout(() => ctrl.abort(), ms);
   };
 
   try {
-    let apiRes = await callLocalApi(token, ctrl);
+    let apiRes = await callLocalApi(token, ctrl, wantsStream);
     if (apiRes.status === 401) {
       const refreshedToken = await getValidAccessToken(true);
       if (refreshedToken && refreshedToken !== token) {
         token = refreshedToken;
-        resetTimer(35000);
-        apiRes = await callLocalApi(token, ctrl);
+        resetTimer(FIRST_TOKEN_TIMEOUT_MS);
+        apiRes = await callLocalApi(token, ctrl, wantsStream);
       }
     }
 
@@ -692,6 +830,8 @@ async function ai(body, onChunk) {
       let sseBuffer = "";
       let accumulated = "";
       let finalText = "";
+      let hasDelta = false;
+      let slowNotified = false;
 
       const handleLine = (rawLine) => {
         const line = rawLine.trim();
@@ -709,11 +849,19 @@ async function ai(body, onChunk) {
           if (typeof ev.status === "number") err.status = ev.status;
           throw err;
         }
+        if (ev.type === "ping") {
+          if (!hasDelta && !slowNotified && Date.now() - startedAt > 7500) {
+            slowNotified = true;
+            onStatus?.("Analyzing course notes and formulating your answer...");
+          }
+          return;
+        }
         if (ev.type === "meta") {
           syncQuotaFromResponse(ev);
           return;
         }
         if (ev.type === "delta" && typeof ev.delta === "string") {
+          hasDelta = true;
           accumulated += ev.delta;
           onChunk(accumulated);
           return;
@@ -727,7 +875,7 @@ async function ai(body, onChunk) {
       };
 
       while (true) {
-        resetTimer(35000);
+        resetTimer(hasDelta ? CHUNK_TIMEOUT_MS : Math.max(15000, FIRST_TOKEN_TIMEOUT_MS - (Date.now() - startedAt)));
         const { value, done } = await reader.read();
         if (done) break;
         sseBuffer += decoder.decode(value, { stream: true });
@@ -745,10 +893,27 @@ async function ai(body, onChunk) {
       }
 
       const resolved = (finalText || accumulated).trim();
-      if (!resolved) {
-        throw new Error("No response returned from AI Tutor. Please try again.");
+      if (resolved) {
+        return resolved;
       }
-      return resolved;
+
+      // If stream closed with zero output, attempt one clean non-streaming request
+      resetTimer(45000);
+      const fallbackRes = await callLocalApi(token, ctrl, false);
+      const fbCt = fallbackRes.headers.get("content-type") || "";
+      if (fbCt.includes("application/json")) {
+        const fbData = await fallbackRes.json();
+        syncQuotaFromResponse(fbData);
+        if (fallbackRes.ok && fbData?.text) {
+          return fbData.text;
+        }
+        if (fbData?.error) {
+          const err = new Error(fbData.error);
+          err.status = fallbackRes.status;
+          throw err;
+        }
+      }
+      throw new Error("No response returned from AI Tutor. Please try again.");
     }
 
     if (contentType.includes("application/json")) {
@@ -776,7 +941,9 @@ async function ai(body, onChunk) {
     }
   } catch (err) {
     if (err?.name === "AbortError") {
-      throw new Error("AI Tutor timed out while waiting for a response. Please try again.");
+      throw new Error(
+        "AI Tutor took too long to respond on this connection. Try asking a more specific question or retry."
+      );
     }
     if (!shouldTryEdgeFallback) {
       if (gotServerResponse || typeof err?.status === "number" || apiError) {
@@ -814,29 +981,192 @@ async function ai(body, onChunk) {
   throw new Error(apiError || "Could not reach AI Tutor service.");
 }
 
-function bub(t, c) {
+const COPY_ICON_SVG =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+const CHECK_ICON_SVG =
+  '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>';
+
+async function copyTextToClipboard(text) {
+  const clean = String(text || "");
+  if (!clean) return false;
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(clean);
+      return true;
+    } catch {}
+  }
+  try {
+    const ta = document.createElement("textarea");
+    ta.value = clean;
+    ta.setAttribute("readonly", "");
+    ta.style.position = "fixed";
+    ta.style.top = "-9999px";
+    ta.style.left = "-9999px";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    ta.setSelectionRange(0, clean.length);
+    const ok = document.execCommand("copy");
+    ta.remove();
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+function setBubbleText(bubbleEl, text) {
+  if (!bubbleEl) return;
+  const val = String(text || "");
+  if (bubbleEl._body) {
+    bubbleEl._body.textContent = val;
+    bubbleEl._body.hidden = !val;
+  } else {
+    bubbleEl.textContent = val;
+  }
+}
+
+function setBubbleTyping(bubbleEl, typing, label = "Thinking...") {
+  if (!bubbleEl) return;
+  const isTyping = Boolean(typing);
+  bubbleEl.classList.toggle("is-typing", isTyping);
+  if (bubbleEl._typing) {
+    bubbleEl._typing.hidden = !isTyping;
+    if (bubbleEl._typingLabel && label) {
+      bubbleEl._typingLabel.textContent = label;
+    }
+  }
+  if (bubbleEl._body && isTyping) {
+    bubbleEl._body.textContent = "";
+    bubbleEl._body.hidden = true;
+  }
+}
+
+function setBubbleCopyable(bubbleEl, copyable) {
+  if (!bubbleEl?._copyBtn) return;
+  const hasText = Boolean(bubbleEl._body?.textContent?.trim());
+  bubbleEl._copyBtn.hidden = !(copyable && hasText);
+}
+
+function bub(t, c, opts = {}) {
   const d = document.createElement("div");
   d.className = "m " + c;
-  d.textContent = t;
-  $("#log").append(d);
-  $("#log").scrollTop = 1e9;
+
+  const head = document.createElement("div");
+  head.className = "m-head";
+  const role = document.createElement("span");
+  role.className = "m-role";
+  role.textContent = c === "u" ? "You" : "UniVault AI";
+  head.append(role);
+
+  let copyBtn = null;
+  if (c === "a") {
+    copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "ghost m-copy";
+    copyBtn.setAttribute("aria-label", "Copy AI response to clipboard");
+    copyBtn.title = "Copy explanation or study notes";
+    copyBtn.innerHTML = `${COPY_ICON_SVG}<span>Copy</span>`;
+    let resetTimer = null;
+    copyBtn.onclick = async () => {
+      const content = d._body?.textContent?.trim() || "";
+      if (!content) return;
+      const ok = await copyTextToClipboard(content);
+      if (resetTimer) clearTimeout(resetTimer);
+      copyBtn.classList.toggle("is-copied", ok);
+      copyBtn.innerHTML = ok
+        ? `${CHECK_ICON_SVG}<span>Copied</span>`
+        : `${COPY_ICON_SVG}<span>Copy failed</span>`;
+      copyBtn.setAttribute("aria-label", ok ? "Copied to clipboard" : "Copy failed");
+      resetTimer = setTimeout(() => {
+        copyBtn.classList.remove("is-copied");
+        copyBtn.innerHTML = `${COPY_ICON_SVG}<span>Copy</span>`;
+        copyBtn.setAttribute("aria-label", "Copy AI response to clipboard");
+      }, 1800);
+    };
+    head.append(copyBtn);
+  }
+  d.append(head);
+
+  let typingEl = null;
+  let typingLabelEl = null;
+  if (c === "a") {
+    typingEl = document.createElement("div");
+    typingEl.className = "m-typing";
+    typingEl.hidden = true;
+    typingEl.setAttribute("role", "status");
+    const dots = document.createElement("span");
+    dots.className = "typing-dots";
+    dots.setAttribute("aria-hidden", "true");
+    dots.innerHTML = "<span></span><span></span><span></span>";
+    typingLabelEl = document.createElement("span");
+    typingLabelEl.className = "typing-label";
+    typingLabelEl.textContent = opts.typingLabel || "Thinking...";
+    typingEl.append(dots, typingLabelEl);
+    d.append(typingEl);
+  }
+
+  const body = document.createElement("div");
+  body.className = "m-body";
+  d.append(body);
+
+  const actions = document.createElement("div");
+  actions.className = "m-actions";
+  actions.hidden = true;
+  d.append(actions);
+
+  d._body = body;
+  d._typing = typingEl;
+  d._typingLabel = typingLabelEl;
+  d._copyBtn = copyBtn;
+  d._actions = actions;
+
+  if (opts.typing) {
+    setBubbleTyping(d, true, opts.typingLabel || "Thinking...");
+    setBubbleCopyable(d, false);
+  } else {
+    setBubbleText(d, t);
+    setBubbleCopyable(d, opts.copyable !== false && c === "a");
+  }
+
+  const logEl = $("#log");
+  if (logEl) {
+    logEl.append(d);
+    logEl.scrollTop = logEl.scrollHeight;
+  }
   return d;
+}
+
+function renderWelcomeChatMessage() {
+  const logEl = $("#log");
+  if (!logEl) return;
+  logEl.innerHTML = "";
+  bub(
+    "AI Tutor is ready. Ask any KNUST exam question, pick a course above to use its past papers, tap a quick study prompt, or upload a PDF/image/audio/video.",
+    "a",
+    { copyable: false }
+  );
 }
 
 function showAiErrorInBubble(bubbleEl, err) {
   const msg = err?.message || "Could not get a response from AI Tutor.";
-  bubbleEl.textContent = msg;
-  if (err?.status === 402 || /premium|trial limit/i.test(msg)) {
-    const wrap = document.createElement("div");
-    wrap.style.marginTop = "10px";
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.textContent = "Upgrade to Premium";
-    btn.onclick = () => show("pricing");
-    wrap.append(btn);
-    bubbleEl.append(wrap);
+  setBubbleTyping(bubbleEl, false);
+  setBubbleText(bubbleEl, msg);
+  setBubbleCopyable(bubbleEl, false);
+  bubbleEl.classList.add("is-err");
+  if (bubbleEl._actions) {
+    bubbleEl._actions.innerHTML = "";
+    bubbleEl._actions.hidden = true;
+    if (err?.status === 402 || /premium|trial limit/i.test(msg)) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = "Upgrade to Premium";
+      btn.onclick = () => show("pricing");
+      bubbleEl._actions.append(btn);
+      bubbleEl._actions.hidden = false;
+    }
   }
-  $("#log").scrollTop = 1e9;
+  const logEl = $("#log");
+  if (logEl) logEl.scrollTop = logEl.scrollHeight;
 }
 
 function buildAttachmentContext() {
@@ -855,7 +1185,7 @@ async function ask(text) {
   if ($("#send")?.disabled) return;
   bub(text, "u");
   hist.push({ role: "user", content: text });
-  const w = bub("Thinking...", "a");
+  const w = bub("", "a", { typing: true, typingLabel: "Thinking..." });
   setAiBusy(true);
   try {
     const r = await ai(
@@ -867,18 +1197,25 @@ async function ask(text) {
       },
       (partial) => {
         if (!partial) return;
-        w.textContent = partial;
+        setBubbleTyping(w, false);
+        setBubbleText(w, partial);
         const logEl = $("#log");
         if (logEl) logEl.scrollTop = logEl.scrollHeight;
+      },
+      (statusMsg) => {
+        setBubbleTyping(w, true, statusMsg);
       }
     );
     const clean = String(r || "").trim();
+    setBubbleTyping(w, false);
     if (!clean) {
-      w.textContent = "No response returned. Please try again.";
+      setBubbleText(w, "No response returned. Please try again.");
+      setBubbleCopyable(w, false);
       hist.pop();
       return;
     }
-    w.textContent = clean;
+    setBubbleText(w, clean);
+    setBubbleCopyable(w, true);
     hist.push({ role: "assistant", content: clean });
     const logEl = $("#log");
     if (logEl) logEl.scrollTop = logEl.scrollHeight;
@@ -896,7 +1233,7 @@ async function requestDetailedExplanation(targetQuestion, inlineContext = "") {
     ? `Detailed explanation requested:\n${targetQuestion}`
     : "Provide a detailed explanation of the uploaded material.";
   bub(userLabel, "u");
-  const w = bub("Preparing detailed explanation...", "a");
+  const w = bub("", "a", { typing: true, typingLabel: "Preparing detailed explanation..." });
   setAiBusy(true);
   try {
     const context = inlineContext || buildAttachmentContext();
@@ -909,17 +1246,24 @@ async function requestDetailedExplanation(targetQuestion, inlineContext = "") {
       },
       (partial) => {
         if (!partial) return;
-        w.textContent = partial;
+        setBubbleTyping(w, false);
+        setBubbleText(w, partial);
         const logEl = $("#log");
         if (logEl) logEl.scrollTop = logEl.scrollHeight;
+      },
+      (statusMsg) => {
+        setBubbleTyping(w, true, statusMsg);
       }
     );
     const clean = String(r || "").trim();
+    setBubbleTyping(w, false);
     if (!clean) {
-      w.textContent = "No explanation returned. Please try again.";
+      setBubbleText(w, "No explanation returned. Please try again.");
+      setBubbleCopyable(w, false);
       return;
     }
-    w.textContent = clean;
+    setBubbleText(w, clean);
+    setBubbleCopyable(w, true);
     hist.push({ role: "user", content: userLabel });
     hist.push({ role: "assistant", content: clean });
     const logEl = $("#log");
@@ -1106,7 +1450,11 @@ if ($("#explainBtn")) {
     const target = typed || selectedQ;
     if (!target && !activeAttachment) {
       $("#msg").focus();
-      bub("Type or paste a specific question (or upload a PDF/DOCX/PPT/MP3/MP4) to get a detailed explanation.", "a");
+      bub(
+        "Type or paste a specific question (or upload a PDF/DOCX/PPT/MP3/MP4) to get a detailed explanation.",
+        "a",
+        { copyable: false }
+      );
       return;
     }
     if (typed) $("#msg").value = "";
@@ -1124,16 +1472,39 @@ if ($("#explainAttachedBtn")) {
   };
 }
 
+if ($("#clearChatBtn")) {
+  $("#clearChatBtn").onclick = () => {
+    if ($("#send")?.disabled) return;
+    hist = [];
+    renderWelcomeChatMessage();
+    $("#msg")?.focus();
+  };
+}
+
+document.querySelectorAll(".chat-prompt-btn").forEach((btn) => {
+  btn.onclick = () => {
+    const prompt = btn.dataset.prompt || "";
+    if (!prompt || $("#send")?.disabled) return;
+    if (isVoiceRecording) stopVoiceInput();
+    setMicStatus("");
+    ask(prompt);
+  };
+});
+
 if ($("#chatFileBtn") && $("#chatFile")) {
   $("#chatFileBtn").onclick = () => $("#chatFile").click();
   $("#chatFile").onchange = async (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     $("#chatFileBtn").disabled = true;
-    const statusBub = bub(`Reading "${file.name}"...`, "a");
+    const statusBub = bub("", "a", {
+      typing: true,
+      typingLabel: `Reading "${file.name}"...`,
+      copyable: false,
+    });
     try {
       const data = await processFileWithGemini(file, (msg) => {
-        statusBub.textContent = msg;
+        setBubbleTyping(statusBub, true, msg);
       });
       setActiveAttachment(data);
       const actionLabel =
@@ -1142,13 +1513,17 @@ if ($("#chatFileBtn") && $("#chatFile")) {
             ? "OCR-scanned & extracted"
             : "Extracted"
           : "Transcribed";
-      statusBub.textContent =
+      setBubbleTyping(statusBub, false);
+      setBubbleText(
+        statusBub,
         `${actionLabel} "${data.fileName}".\n\nSummary: ${data.summary || "Ready."}\n\n` +
-        (data.questionsDetected?.length
-          ? `Detected ${data.questionsDetected.length} question(s). Pick one above or ask me for a detailed explanation!`
-          : "Ask me any question about this file or click Detailed explanation.");
+          (data.questionsDetected?.length
+            ? `Detected ${data.questionsDetected.length} question(s). Pick one above or ask me for a detailed explanation!`
+            : "Ask me any question about this file or click Detailed explanation.")
+      );
+      setBubbleCopyable(statusBub, true);
     } catch (err) {
-      statusBub.textContent = err.message || "Could not process file.";
+      showAiErrorInBubble(statusBub, err?.message ? err : { message: "Could not process file." });
     } finally {
       $("#chatFileBtn").disabled = false;
       $("#chatFile").value = "";
