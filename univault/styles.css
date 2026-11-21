@@ -2170,36 +2170,6 @@ pre {
   flex-shrink: 0;
 }
 
-.pwa-ios-dialog {
-  width: min(440px, 92vw);
-  padding: 24px;
-  border-radius: 16px;
-  border: 1px solid var(--c-border);
-}
-
-.pwa-ios-dialog h3 {
-  color: var(--head);
-  font-size: 1.18rem;
-  margin-bottom: 8px;
-}
-
-.pwa-ios-copy {
-  color: var(--mut);
-  font-size: 0.92rem;
-  line-height: 1.5;
-  margin-bottom: 14px;
-}
-
-.pwa-ios-steps {
-  display: grid;
-  gap: 8px;
-  padding-left: 20px;
-  margin-bottom: 18px;
-  color: var(--body-soft);
-  font-size: 0.92rem;
-  line-height: 1.5;
-}
-
 .programme-scope-line {
   margin: -6px 0 16px;
   font-size: 0.9rem;

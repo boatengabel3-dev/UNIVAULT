@@ -481,66 +481,35 @@ const uvTheme = (() => {
 const uvPwa = (() => {
   let deferredPrompt = null;
   let offlineEl = null;
-  let iosDialog = null;
 
   const isStandalone = () =>
     (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
     window.navigator.standalone === true;
 
-  const isIOS = () => /iphone|ipad|ipod/i.test(window.navigator.userAgent || "");
-
   function syncInstallButtons() {
     const installed = isStandalone();
     const canInstall = !installed && Boolean(deferredPrompt);
-    const showIos = !installed && !canInstall && isIOS();
 
     document.querySelectorAll("[data-pwa-install]").forEach((btn) => {
       if (canInstall) {
         btn.hidden = false;
         btn.textContent = btn.dataset.installLabel || "Install App";
-      } else if (showIos) {
-        btn.hidden = false;
-        btn.textContent = "Install on iOS";
       } else {
         btn.hidden = true;
       }
     });
   }
 
-  function openIosInstallGuide() {
-    if (!iosDialog) {
-      iosDialog = document.createElement("dialog");
-      iosDialog.className = "pwa-ios-dialog";
-      iosDialog.setAttribute("aria-labelledby", "uvIosTitle");
-      iosDialog.innerHTML =
-        '<h3 id="uvIosTitle">Install UniVault on iPhone / iPad</h3>' +
-        '<p class="pwa-ios-copy">Save UniVault to your home screen for quick launch and offline access to previously loaded past papers.</p>' +
-        '<ol class="pwa-ios-steps"><li>Tap the <strong>Share</strong> button in Safari.</li><li>Scroll down and tap <strong>Add to Home Screen</strong>.</li></ol>' +
-        '<div class="bar" style="justify-content:flex-end;margin-bottom:0"><button type="button" class="ghost" id="uvIosClose">Close</button></div>';
-      document.body.appendChild(iosDialog);
-      iosDialog.querySelector("#uvIosClose").onclick = () => iosDialog.close();
-      iosDialog.addEventListener("click", (e) => {
-        if (e.target === iosDialog) iosDialog.close();
-      });
-    }
-    if (!iosDialog.open) iosDialog.showModal();
-  }
-
   async function triggerInstall() {
-    if (deferredPrompt) {
-      try {
-        await deferredPrompt.prompt();
-        const choice = await deferredPrompt.userChoice;
-        if (choice?.outcome === "accepted") {
-          deferredPrompt = null;
-        }
-      } catch {}
-      syncInstallButtons();
-      return;
-    }
-    if (isIOS() && !isStandalone()) {
-      openIosInstallGuide();
-    }
+    if (!deferredPrompt) return;
+    try {
+      await deferredPrompt.prompt();
+      const choice = await deferredPrompt.userChoice;
+      if (choice?.outcome === "accepted") {
+        deferredPrompt = null;
+      }
+    } catch {}
+    syncInstallButtons();
   }
 
   function ensureOfflineBar() {
