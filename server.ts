@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import {
   checkDuplicateQuestion,
+  formatAiError,
   prepareAiChat,
   processUploadedMaterial,
   runAiChat,
@@ -103,12 +104,13 @@ app.post('/api/ai-process-file', async (req, res) => {
       duplicateCheck: dup,
     });
   } catch (err: unknown) {
-    const status =
+    const formatted = formatAiError(err);
+    const explicit =
       err && typeof err === 'object' && 'status' in err && typeof err.status === 'number'
         ? err.status
-        : 400;
-    const message = err instanceof Error ? err.message : 'Failed to process uploaded file.';
-    res.status(status).json({ error: message });
+        : 0;
+    const status = explicit || (formatted.status >= 500 ? formatted.status : 400);
+    res.status(status).json({ error: formatted.message });
   }
 });
 
@@ -207,8 +209,9 @@ app.post('/api/ai-chat', async (req, res) => {
     }
   } catch (err: unknown) {
     const errObj = err && typeof err === 'object' ? (err as Record<string, unknown>) : {};
-    const status = typeof errObj.status === 'number' ? errObj.status : 500;
-    const message = err instanceof Error ? err.message : 'AI service error';
+    const formatted = formatAiError(err);
+    const status = formatted.status;
+    const message = formatted.message;
     if (status >= 500) {
       console.error('[api/ai-chat]', message);
     }

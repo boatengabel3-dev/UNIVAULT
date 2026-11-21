@@ -1048,7 +1048,15 @@ dialog {
 }
 
 .m-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin-top: 4px;
+}
+
+.m-actions button {
+  padding: 7px 14px;
+  font-size: 0.85rem;
 }
 
 .m-copy[hidden],
@@ -2190,6 +2198,118 @@ pre {
   color: var(--body-soft);
   font-size: 0.92rem;
   line-height: 1.5;
+}
+
+.programme-scope-line {
+  margin: -6px 0 16px;
+  font-size: 0.9rem;
+  line-height: 1.5;
+  color: var(--body-soft);
+}
+
+.programme-scope-line strong {
+  color: var(--head);
+}
+
+.prog-change-link {
+  display: inline;
+  padding: 2px 4px;
+  background: transparent;
+  border: none;
+  color: var(--c);
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+
+.prog-change-link:hover {
+  background: transparent;
+  color: var(--head);
+}
+
+.acct-prog {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.79rem;
+  line-height: 1.35;
+  color: var(--mut);
+}
+
+.drawer-prog-btn {
+  margin-top: 8px;
+  width: 100%;
+  padding: 7px 10px;
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.programme-dialog {
+  width: min(500px, 94vw);
+  padding: 24px;
+  border-radius: 16px;
+  border: 1px solid var(--c-border);
+}
+
+.programme-dialog h3 {
+  color: var(--head);
+  font-size: 1.24rem;
+  margin-bottom: 6px;
+}
+
+.programme-dialog-copy {
+  color: var(--mut);
+  font-size: 0.91rem;
+  line-height: 1.5;
+  margin-bottom: 16px;
+}
+
+.programme-dialog-form {
+  display: grid;
+  gap: 11px;
+}
+
+.programme-dialog-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.programme-dialog-meta label {
+  font-size: 0.87rem;
+  font-weight: 600;
+  color: var(--body-soft);
+}
+
+.programme-dialog-count {
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--mut);
+  white-space: nowrap;
+}
+
+.programme-dialog-form input,
+.programme-dialog-form select {
+  width: 100%;
+  min-height: 46px;
+  font-size: 16px;
+  background: var(--input-bg);
+}
+
+.programme-dialog-hint {
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--c);
+  margin: 0;
+}
+
+.programme-dialog-msg {
+  font-size: 0.88rem;
+  color: var(--err-ink);
+  margin: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

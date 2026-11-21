@@ -1200,17 +1200,21 @@ export async function processUploadedMaterial(opts: {
     mediaType = 'audio';
     const mediaHandle = await uploadToGeminiFilesIfLarge(ai, buffer, opts.fileName, resolvedMime);
     try {
-      const transRes = await ai.models.generateContent({
-        model: 'gemini-3.5-transcribe',
-        contents: {
-          parts: [
-            mediaHandle.part,
-            {
-              text: 'Transcribe all spoken academic content, examination questions, formulas, and explanations accurately and verbatim.',
+      const transRes = await callGeminiWithRetry(
+        (model) =>
+          ai.models.generateContent({
+            model,
+            contents: {
+              parts: [
+                mediaHandle.part,
+                {
+                  text: 'Transcribe all spoken academic content, examination questions, formulas, and explanations accurately and verbatim.',
+                },
+              ],
             },
-          ],
-        },
-      });
+          }),
+        ['gemini-3.5-transcribe']
+      );
       transcript = (transRes.text ?? '').trim();
     } finally {
       await mediaHandle.cleanup?.();

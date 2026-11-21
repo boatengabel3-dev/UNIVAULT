@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { prepareAiChat, runAiChat, streamAiChat } from './_lib/univault-ai.js';
+import { formatAiError, prepareAiChat, runAiChat, streamAiChat } from './_lib/univault-ai.js';
 
 type VercelRequest = IncomingMessage & {
   method?: string;
@@ -130,8 +130,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   } catch (err: unknown) {
     const errObj = err && typeof err === 'object' ? (err as Record<string, unknown>) : {};
-    const status = typeof errObj.status === 'number' ? errObj.status : 500;
-    const message = err instanceof Error ? err.message : 'AI service error';
+    const formatted = formatAiError(err);
+    const status = formatted.status;
+    const message = formatted.message;
     if (status >= 500) {
       console.error('[api/ai-chat]', message);
     }

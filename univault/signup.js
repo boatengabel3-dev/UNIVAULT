@@ -53,12 +53,117 @@ function showResendButton(email) {
 }
 
 const SAVED_EMAIL_KEY = "uv_saved_email";
+const PROG_BY_EMAIL_KEY = "uv_prog_by_email";
+
+function readProgByEmailMap() {
+  try {
+    const raw = localStorage.getItem(PROG_BY_EMAIL_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveUserProgrammeLocally(userId, email, prog) {
+  if (!prog?.id) return;
+  const payload = {
+    id: prog.id,
+    name: prog.name,
+    college: prog.college,
+    updatedAt: Date.now(),
+  };
+  try {
+    if (userId) {
+      localStorage.setItem(`uv_user_programme_${userId}`, JSON.stringify(payload));
+    }
+    const cleanEmail = String(email || "").trim().toLowerCase();
+    if (cleanEmail) {
+      const map = readProgByEmailMap();
+      map[cleanEmail] = prog.id;
+      localStorage.setItem(PROG_BY_EMAIL_KEY, JSON.stringify(map));
+    }
+  } catch {}
+}
+
+function updateProgrammeHint(prog) {
+  const hint = $("#programmeHint");
+  if (!hint) return;
+  if (prog) {
+    hint.textContent = `${prog.college} · Unlocks past questions aligned with ${prog.name}.`;
+    hint.classList.add("is-selected");
+  } else {
+    hint.textContent = "Determines which KNUST past examination papers unlock in your vault.";
+    hint.classList.remove("is-selected");
+  }
+}
+
+function renderProgrammeOptions(query = "", preferredValue = "") {
+  const sel = $("#programme");
+  const countEl = $("#programmeCount");
+  const api = window.uvKnustCourses;
+  if (!sel || !api) return;
+
+  const currentVal = preferredValue || sel.value || "";
+  const matches = api.searchProgrammes(query);
+  const total = api.COURSES.length;
+
+  sel.innerHTML = "";
+  const defaultOpt = document.createElement("option");
+  defaultOpt.value = "";
+  defaultOpt.textContent = matches.length
+    ? query.trim()
+      ? `Select matching KNUST course (${matches.length} found)...`
+      : `Select your KNUST course offering (${total} courses)...`
+    : "No matching KNUST courses — clear search to browse all 150";
+  sel.append(defaultOpt);
+
+  api.COLLEGES.forEach((college) => {
+    const groupItems = matches.filter((c) => c.college === college);
+    if (!groupItems.length) return;
+    const og = document.createElement("optgroup");
+    og.label = college;
+    groupItems.forEach((c) => {
+      const opt = document.createElement("option");
+      opt.value = c.id;
+      opt.textContent = c.name;
+      og.append(opt);
+    });
+    sel.append(og);
+  });
+
+  if (currentVal && matches.some((c) => c.id === currentVal)) {
+    sel.value = currentVal;
+  } else {
+    sel.value = "";
+  }
+
+  if (countEl) {
+    countEl.textContent = query.trim()
+      ? `${matches.length} of ${total} programmes`
+      : `${total} programmes`;
+  }
+  updateProgrammeHint(api.findProgramme(sel.value));
+}
+
+function restoreSavedProgrammeForEmail(email) {
+  const cleanEmail = String(email || "").trim().toLowerCase();
+  const sel = $("#programme");
+  const api = window.uvKnustCourses;
+  if (!sel || !api || !cleanEmail) return;
+  const savedId = readProgByEmailMap()[cleanEmail];
+  if (!savedId) return;
+  const prog = api.findProgramme(savedId);
+  if (!prog) return;
+  renderProgrammeOptions($("#programmeSearch")?.value || "", prog.id);
+}
 
 function restoreSavedEmail() {
   try {
     const saved = localStorage.getItem(SAVED_EMAIL_KEY) || "";
     if (saved && $("#em") && !$("#em").value) {
       $("#em").value = saved;
+      restoreSavedProgrammeForEmail(saved);
     }
     if (saved && $("#recEmail") && !$("#recEmail").value) {
       $("#recEmail").value = saved;
@@ -141,16 +246,18 @@ function applyMode(nextMode) {
   setMsg("");
 }
 
-function saveWelcomeState(user, authMode) {
+function saveWelcomeState(user, authMode, progName = "") {
   const fullName =
     user?.user_metadata?.full_name ||
     $("#name")?.value?.trim() ||
     (user?.email ? user.email.split("@")[0] : "");
+  const programme = progName || user?.user_metadata?.programme || "";
   try {
     sessionStorage.setItem(
       "uv_just_signed_in",
       JSON.stringify({
         name: fullName,
+        programme,
         mode: authMode,
         ts: Date.now(),
       })
@@ -335,8 +442,41 @@ if ($("#recoveryForm")) {
   };
 }
 
+renderProgrammeOptions("");
 applyMode(mode);
 restoreSavedEmail();
+
+if ($("#programmeSearch")) {
+  $("#programmeSearch").addEventListener("input", (e) => {
+    renderProgrammeOptions(e.target.value, $("#programme")?.value || "");
+  });
+  $("#programmeSearch").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") {
+      const api = window.uvKnustCourses;
+      const matches = api?.searchProgrammes(e.target.value) || [];
+      if (matches.length === 1 && $("#programme")) {
+        e.preventDefault();
+        renderProgrammeOptions(e.target.value, matches[0].id);
+        $("#programme").focus();
+      }
+    }
+  });
+}
+
+if ($("#programme")) {
+  $("#programme").addEventListener("change", () => {
+    const prog = window.uvKnustCourses?.findProgramme($("#programme").value);
+    updateProgrammeHint(prog);
+  });
+}
+
+if ($("#em")) {
+  $("#em").addEventListener("change", (e) => {
+    if (!$("#programme")?.value) {
+      restoreSavedProgrammeForEmail(e.target.value);
+    }
+  });
+}
 
 if (urlAuthError) {
   setMsg(
@@ -363,6 +503,8 @@ $("#f").onsubmit = async (e) => {
   const email = $("#em").value.trim().toLowerCase();
   const password = $("#pw").value;
   const fullName = $("#name")?.value.trim() || "";
+  const rawProgramme = $("#programme")?.value || "";
+  const selectedProg = window.uvKnustCourses?.findProgramme(rawProgramme) || null;
 
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     setMsg("Please enter a valid email address.");
@@ -379,6 +521,11 @@ $("#f").onsubmit = async (e) => {
     $("#name").focus();
     return;
   }
+  if (!selectedProg) {
+    setMsg("Please select your KNUST course offering from the 150-programme list.");
+    $("#programme")?.focus();
+    return;
+  }
 
   $("#em").value = email;
   isSubmitting = true;
@@ -388,13 +535,19 @@ $("#f").onsubmit = async (e) => {
   }
 
   try {
+    const progMeta = {
+      programme: selectedProg.name,
+      programme_id: selectedProg.id,
+      programme_college: selectedProg.college,
+    };
+
     const r =
       mode === "up"
         ? await sb.auth.signUp({
             email,
             password,
             options: {
-              data: { full_name: fullName },
+              data: { full_name: fullName, ...progMeta },
               emailRedirectTo: getRedirectBaseUrl(),
             },
           })
@@ -416,21 +569,31 @@ $("#f").onsubmit = async (e) => {
       return;
     }
 
+    let authedUser = r.data?.session?.user || r.data?.user || null;
+    saveUserProgrammeLocally(authedUser?.id, email, selectedProg);
+
+    if (r.data?.session && mode === "in" && typeof sb?.auth?.updateUser === "function") {
+      try {
+        const upd = await sb.auth.updateUser({ data: progMeta });
+        if (upd?.data?.user) authedUser = upd.data.user;
+      } catch {}
+    }
+
     await saveCredentialsToBrowser(
       email,
       password,
-      fullName || r.data?.user?.user_metadata?.full_name || ""
+      fullName || authedUser?.user_metadata?.full_name || ""
     );
 
     if (r.data?.session) {
-      const signedInName = saveWelcomeState(r.data.session.user, mode);
+      const signedInName = saveWelcomeState(authedUser, mode, selectedProg.name);
       setMsg(
         mode === "up"
-          ? `Welcome to UniVault${signedInName ? ", " + signedInName : ""}! Opening your vault...`
-          : `Welcome back${signedInName ? ", " + signedInName : ""}! Signing you in...`,
+          ? `Welcome to UniVault${signedInName ? ", " + signedInName : ""}! Opening ${selectedProg.name}...`
+          : `Welcome back${signedInName ? ", " + signedInName : ""}! Loading ${selectedProg.name} archive...`,
         true
       );
-      await redirectAfterAuth(r.data.session.user, mode);
+      await redirectAfterAuth(authedUser, mode);
     } else {
       const rememberNote = $("#rememberCreds")?.checked
         ? " Your email is saved for next time (accept your browser's Save Password prompt if shown)."

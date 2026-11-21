@@ -1,0 +1,1323 @@
+(function (global) {
+  "use strict";
+
+  const UG_CORE_PREFIXES = ["ENGL", "COMM", "GEN"];
+  const UG_CORE_KEYWORDS = ["communication skills", "academic writing"];
+
+  const QUANT_STEM_PREFIXES = ["MATH", "STAT", "PHYS", "CHEM"];
+  const QUANT_STEM_KEYWORDS = ["mathematics", "calculus", "linear algebra", "statistics", "probability"];
+
+  const COURSES = [
+    // College of Agriculture and Natural Resources (8)
+    {
+      id: "bsc-agriculture",
+      name: "BSc. Agriculture",
+      college: "College of Agriculture and Natural Resources",
+      level: "Undergraduate",
+      prefixes: ["AGRI", "AGRN", "CROP", "ANSC", "SOIL", "BIOC", "BIOL", "CHEM", "ECON", ...UG_CORE_PREFIXES],
+      keywords: ["agriculture", "agronomy", "crop science", "animal science", "soil science", "horticulture", "agricultural economics", "entomology", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-agricultural-biotechnology",
+      name: "BSc. Agricultural Biotechnology",
+      college: "College of Agriculture and Natural Resources",
+      level: "Undergraduate",
+      prefixes: ["AGBT", "BIOT", "AGRI", "BIOC", "BIOL", "CHEM", "GENE", "MBIO", ...UG_CORE_PREFIXES],
+      keywords: ["agricultural biotechnology", "biotechnology", "genetics", "molecular biology", "biochemistry", "crop science", "agriculture", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-agribusiness-management",
+      name: "BSc. Agribusiness Management",
+      college: "College of Agriculture and Natural Resources",
+      level: "Undergraduate",
+      prefixes: ["AGBM", "AGEC", "AGRI", "ECON", "ACCT", "MGMT", "STAT", "MATH", ...UG_CORE_PREFIXES],
+      keywords: ["agribusiness", "agricultural economics", "farm management", "economics", "accounting", "marketing", "finance", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-landscape-design-and-management",
+      name: "BSc. Landscape Design and Management",
+      college: "College of Agriculture and Natural Resources",
+      level: "Undergraduate",
+      prefixes: ["LAND", "HORT", "AGRI", "ARCH", "ENVS", ...UG_CORE_PREFIXES],
+      keywords: ["landscape design", "horticulture", "ornamental", "floriculture", "turf", "ecology", "agriculture", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-natural-resource-management",
+      name: "BSc. Natural Resource Management",
+      college: "College of Agriculture and Natural Resources",
+      level: "Undergraduate",
+      prefixes: ["NRM", "FRES", "WILD", "ENVS", "BIOL", "GIS", ...UG_CORE_PREFIXES],
+      keywords: ["natural resource", "forestry", "wildlife", "ecology", "conservation", "watershed", "environmental", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-forest-resources-technology",
+      name: "BSc. Forest Resources Technology",
+      college: "College of Agriculture and Natural Resources",
+      level: "Undergraduate",
+      prefixes: ["FRT", "FRES", "WOOD", "NRM", "BOTN", "BIOL", ...UG_CORE_PREFIXES],
+      keywords: ["forest resources", "forestry", "wood science", "silviculture", "timber", "natural resource", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-packaging-technology",
+      name: "BSc. Packaging Technology",
+      college: "College of Agriculture and Natural Resources",
+      level: "Undergraduate",
+      prefixes: ["PACK", "FDST", "MATS", "CHEM", "DES", ...UG_CORE_PREFIXES],
+      keywords: ["packaging technology", "packaging", "materials", "food packaging", "polymer", "industrial design", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-aquaculture-and-water-resource-management",
+      name: "BSc. Aquaculture and Water Resource Management",
+      college: "College of Agriculture and Natural Resources",
+      level: "Undergraduate",
+      prefixes: ["AQUA", "FISH", "WATR", "NRM", "BIOL", "CHEM", ...UG_CORE_PREFIXES],
+      keywords: ["aquaculture", "fisheries", "water resource", "hydrobiology", "limnology", "marine", "biology", ...UG_CORE_KEYWORDS],
+    },
+
+    // College of Art and Built Environment (27)
+    {
+      id: "bsc-architecture",
+      name: "BSc. Architecture",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["ARCH", "BT", "QS", "PLAN", "DES", "MATH", ...UG_CORE_PREFIXES],
+      keywords: ["architecture", "architectural design", "building technology", "urban design", "history of architecture", "construction", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-construction-technology-and-management",
+      name: "BSc. Construction Technology and Management",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["CTM", "BT", "QS", "CE", "ARCH", "MATH", ...UG_CORE_PREFIXES],
+      keywords: ["construction technology", "building technology", "project management", "quantity surveying", "structural", "construction", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-quantity-surveying-and-construction-economics",
+      name: "BSc. Quantity Surveying and Construction Economics",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["QS", "QSCE", "BT", "CTM", "ECON", "LAW", "MATH", ...UG_CORE_PREFIXES],
+      keywords: ["quantity surveying", "construction economics", "tendering", "estimating", "measurement", "building technology", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-development-planning",
+      name: "BSc. Development Planning",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["PL", "PLAN", "DEVP", "ECON", "SOC", "GEOG", "STAT", ...UG_CORE_PREFIXES],
+      keywords: ["development planning", "planning", "regional planning", "policy", "urban", "economics", "statistics", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-human-settlement-planning",
+      name: "BSc. Human Settlement Planning",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["HSP", "PL", "PLAN", "GEOG", "ARCH", "GIS", ...UG_CORE_PREFIXES],
+      keywords: ["human settlement", "urban planning", "town planning", "spatial planning", "land use", "gis", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-land-economy",
+      name: "BSc. Land Economy",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["LE", "LANDE", "RE", "LAW", "ECON", "ACCT", ...UG_CORE_PREFIXES],
+      keywords: ["land economy", "valuation", "real estate", "land law", "property", "estate management", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-real-estate",
+      name: "BSc. Real Estate",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["RE", "LE", "FIN", "ECON", "LAW", "ACCT", ...UG_CORE_PREFIXES],
+      keywords: ["real estate", "property valuation", "estate management", "land economy", "housing", "investment", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "ba-communication-design",
+      name: "BA. Communication Design",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["CD", "COMD", "GD", "ART", "PUB", ...UG_CORE_PREFIXES],
+      keywords: ["communication design", "graphic design", "typography", "illustration", "multimedia", "advertising", "visual art", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "ba-integrated-rural-art-and-industry",
+      name: "BA. Integrated Rural Art and Industry",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["IRAI", "ART", "CERA", "TEXT", "METL", ...UG_CORE_PREFIXES],
+      keywords: ["integrated rural art", "rural art", "leather", "bamboo", "weaving", "ceramics", "pottery", "craft", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "ba-publishing-studies",
+      name: "BA. Publishing Studies",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["PUB", "PUBS", "CD", "ENGL", ...UG_CORE_PREFIXES],
+      keywords: ["publishing studies", "publishing", "editorial", "book design", "printing", "typography", "copyright", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bfa-ceramics",
+      name: "BFA. Ceramics",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["CERA", "CER", "ART", "FA", ...UG_CORE_PREFIXES],
+      keywords: ["ceramics", "pottery", "kiln", "glaze", "fine art", "sculpture", "art history", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "ba-metal-product-design-technology",
+      name: "BA. Metal Product Design Technology",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["MPDT", "METL", "DES", "ART", "MATS", ...UG_CORE_PREFIXES],
+      keywords: ["metal product design", "metalsmithing", "jewellery", "jewelry", "product design", "foundry", "fabrication", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-textile-design-and-technology",
+      name: "BSc. Textile Design and Technology",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["TEXT", "TDT", "FASH", "CHEM", "ART", ...UG_CORE_PREFIXES],
+      keywords: ["textile design", "textiles", "weaving", "dyeing", "fabric", "printing", "fashion", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bfa-fine-art-and-curatorial-practice",
+      name: "BFA. Fine Art and Curatorial Practice",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["FA", "FINA", "ART", "CUR", ...UG_CORE_PREFIXES],
+      keywords: ["fine art", "painting", "sculpture", "curatorial", "art history", "contemporary art", "drawing", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-fashion-design",
+      name: "BSc. Fashion Design",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["FASH", "TEXT", "ART", "DES", ...UG_CORE_PREFIXES],
+      keywords: ["fashion design", "garment", "pattern drafting", "textiles", "apparel", "tailoring", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-ceramics-technology",
+      name: "BSc. Ceramics Technology",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["CERT", "CERA", "MATS", "CHEM", "PHYS", ...UG_CORE_PREFIXES],
+      keywords: ["ceramics technology", "industrial ceramics", "silicate", "glass", "refractories", "materials", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bed-junior-high-school-education",
+      name: "B.Ed. Junior High School Education",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["EDU", "EDUC", "BED", "MATH", "CHEM", "BIOL", "IT", "HIST", "GEOG", ...UG_CORE_PREFIXES],
+      keywords: ["education", "pedagogy", "curriculum", "junior high", "teaching", "educational studies", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bed-chemistry",
+      name: "B.Ed. Chemistry",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["EDU", "EDUC", "CHEM", "MATH", ...UG_CORE_PREFIXES],
+      keywords: ["b.ed chemistry", "chemistry", "organic chemistry", "inorganic chemistry", "education", "pedagogy", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bed-biology",
+      name: "B.Ed. Biology",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["EDU", "EDUC", "BIOL", "BOTN", "ZOOL", "CHEM", ...UG_CORE_PREFIXES],
+      keywords: ["b.ed biology", "biology", "botany", "zoology", "genetics", "education", "pedagogy", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bed-mathematics",
+      name: "B.Ed. Mathematics",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["EDU", "EDUC", "MATH", "STAT", ...UG_CORE_PREFIXES],
+      keywords: ["b.ed mathematics", "mathematics", "calculus", "algebra", "statistics", "education", "pedagogy", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bed-physics",
+      name: "B.Ed. Physics",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["EDU", "EDUC", "PHYS", "MATH", ...UG_CORE_PREFIXES],
+      keywords: ["b.ed physics", "physics", "mechanics", "electromagnetism", "mathematics", "education", "pedagogy", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bed-stem-aviation-and-aerospace",
+      name: "B.Ed. STEM (Aviation and Aerospace)",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["EDU", "STEM", "AERO", "PHYS", "MATH", ...UG_CORE_PREFIXES],
+      keywords: ["stem", "aviation", "aerospace", "aerodynamics", "education", "physics", "mathematics", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bed-stem-manufacturing",
+      name: "B.Ed. STEM (Manufacturing)",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["EDU", "STEM", "ME", "IE", "MATH", "PHYS", ...UG_CORE_PREFIXES],
+      keywords: ["stem", "manufacturing", "production", "mechanical", "education", "engineering drawing", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bed-stem-robotics",
+      name: "B.Ed. STEM (Robotics)",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["EDU", "STEM", "COE", "CSM", "EE", "MATH", ...UG_CORE_PREFIXES],
+      keywords: ["stem", "robotics", "automation", "embedded", "programming", "electronics", "education", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bed-stem-biomedical-science",
+      name: "B.Ed. STEM (Biomedical Science)",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["EDU", "STEM", "BIOL", "BIOC", "CHEM", "BME", ...UG_CORE_PREFIXES],
+      keywords: ["stem", "biomedical science", "biology", "biochemistry", "anatomy", "education", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bed-art-and-design-technology",
+      name: "B.Ed. Art and Design Technology",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["EDU", "ART", "DES", "CD", ...UG_CORE_PREFIXES],
+      keywords: ["art and design", "visual arts", "graphic design", "education", "pedagogy", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bed-ict",
+      name: "B.Ed. ICT",
+      college: "College of Art and Built Environment",
+      level: "Undergraduate",
+      prefixes: ["EDU", "IT", "CSM", "ICT", "MATH", ...UG_CORE_PREFIXES],
+      keywords: ["b.ed ict", "information technology", "computing", "computer science", "education", "pedagogy", ...UG_CORE_KEYWORDS],
+    },
+
+    // College of Engineering (25)
+    {
+      id: "bsc-civil-engineering",
+      name: "BSc. Civil Engineering",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["CE", "CIVE", "GE", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["civil engineering", "structural", "hydraulics", "geotechnical", "concrete", "surveying", "mechanics of materials", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-civil-engineering-obuasi",
+      name: "BSc. Civil Engineering (Obuasi Campus)",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["CE", "CIVE", "GE", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["civil engineering", "obuasi", "structural", "hydraulics", "geotechnical", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-geological-engineering",
+      name: "BSc. Geological Engineering",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["GEOL", "GE", "MINE", "CE", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["geological engineering", "geology", "mineralogy", "petrology", "hydrogeology", "geophysics", "mining", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-geological-engineering-obuasi",
+      name: "BSc. Geological Engineering (Obuasi Campus)",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["GEOL", "GE", "MINE", "CE", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["geological engineering", "obuasi", "geology", "mineralogy", "geophysics", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-geomatic-engineering",
+      name: "BSc. Geomatic Engineering",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["GEOM", "GM", "GIS", "CE", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["geomatic engineering", "geomatics", "surveying", "geodesy", "photogrammetry", "gis", "remote sensing", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-geomatic-engineering-obuasi",
+      name: "BSc. Geomatic Engineering (Obuasi Campus)",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["GEOM", "GM", "GIS", "CE", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["geomatic engineering", "obuasi", "surveying", "geodesy", "gis", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-petroleum-engineering",
+      name: "BSc. Petroleum Engineering",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["PE", "PETR", "CHE", "GEOL", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["petroleum engineering", "reservoir", "drilling", "well logging", "oil and gas", "fluid mechanics", "thermodynamics", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-biomedical-engineering",
+      name: "BSc. Biomedical Engineering",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["BME", "BIOM", "EE", "ME", "ANAT", "BIOC", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["biomedical engineering", "biomechanics", "medical instrumentation", "biosensors", "anatomy", "physiology", "signals", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-computer-engineering",
+      name: "BSc. Computer Engineering",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["COE", "EE", "CSM", "TE", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["computer engineering", "digital logic", "microprocessor", "embedded systems", "operating systems", "computer architecture", "c++", "programming", "circuits", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-electrical-electronic-engineering",
+      name: "BSc. Electrical/Electronic Engineering",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["EE", "EEE", "COE", "TE", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["electrical engineering", "electronic engineering", "circuit", "power systems", "electromagnetism", "control systems", "electronics", "signals", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-electrical-electronic-engineering-obuasi",
+      name: "BSc. Electrical/Electronic Engineering (Obuasi Campus)",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["EE", "EEE", "COE", "TE", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["electrical engineering", "electronic engineering", "obuasi", "circuit", "power systems", "electronics", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-telecommunications-engineering",
+      name: "BSc. Telecommunications Engineering",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["TE", "TELE", "EE", "COE", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["telecommunications engineering", "telecom", "antennas", "microwave", "wireless", "signal processing", "networking", "rf", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-agricultural-engineering",
+      name: "BSc. Agricultural Engineering",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["AE", "AGEN", "ME", "CE", "AGRI", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["agricultural engineering", "farm power", "irrigation", "soil and water", "postharvest", "mechanics", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-petrochemical-engineering",
+      name: "BSc. Petrochemical Engineering",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["PCE", "CHE", "PE", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["petrochemical engineering", "chemical reaction", "refining", "polymer", "thermodynamics", "process control", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-chemical-engineering",
+      name: "BSc. Chemical Engineering",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["CHE", "CHME", "PCE", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["chemical engineering", "mass transfer", "heat transfer", "thermodynamics", "fluid flow", "process design", "kinetics", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-metallurgical-engineering",
+      name: "BSc. Metallurgical Engineering",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["MET", "MTE", "MATS", "MINE", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["metallurgical engineering", "metallurgy", "extractive", "mineral processing", "alloy", "corrosion", "materials", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-metallurgical-engineering-obuasi",
+      name: "BSc. Metallurgical Engineering (Obuasi Campus)",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["MET", "MTE", "MATS", "MINE", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["metallurgical engineering", "obuasi", "metallurgy", "mineral processing", "materials", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-materials-engineering",
+      name: "BSc. Materials Engineering",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["MATS", "MAT", "MET", "CHE", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["materials engineering", "materials science", "polymers", "crystallography", "ceramics", "composites", "mechanics", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-materials-engineering-obuasi",
+      name: "BSc. Materials Engineering (Obuasi Campus)",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["MATS", "MAT", "MET", "CHE", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["materials engineering", "obuasi", "materials science", "polymers", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-marine-engineering",
+      name: "BSc. Marine Engineering",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["MARE", "ME", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["marine engineering", "naval architecture", "propulsion", "ship", "fluid mechanics", "thermodynamics", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-industrial-engineering",
+      name: "BSc. Industrial Engineering",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["IE", "INDE", "ME", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["industrial engineering", "operations research", "quality control", "ergonomics", "manufacturing", "supply chain", "optimization", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-automobile-engineering",
+      name: "BSc. Automobile Engineering",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["AUTO", "ME", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["automobile engineering", "automotive", "internal combustion", "vehicle dynamics", "chassis", "mechanical", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-mechanical-engineering",
+      name: "BSc. Mechanical Engineering",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["ME", "MECH", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["mechanical engineering", "thermodynamics", "fluid mechanics", "solid mechanics", "machine design", "heat transfer", "dynamics", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-mechanical-engineering-obuasi",
+      name: "BSc. Mechanical Engineering (Obuasi Campus)",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["ME", "MECH", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["mechanical engineering", "obuasi", "thermodynamics", "fluid mechanics", "machine design", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-aerospace-engineering",
+      name: "BSc. Aerospace Engineering",
+      college: "College of Engineering",
+      level: "Undergraduate",
+      prefixes: ["AERO", "ME", "ENG", ...QUANT_STEM_PREFIXES, ...UG_CORE_PREFIXES],
+      keywords: ["aerospace engineering", "aerodynamics", "propulsion", "flight mechanics", "aircraft", "structures", "engineering", ...QUANT_STEM_KEYWORDS, ...UG_CORE_KEYWORDS],
+    },
+
+    // College of Health Sciences (17)
+    {
+      id: "bsc-physiotherapy-and-sports-science",
+      name: "BSc. Physiotherapy and Sports Science",
+      college: "College of Health Sciences",
+      level: "Undergraduate",
+      prefixes: ["PHYSIO", "PT", "ANAT", "PHSL", "BIOC", "HLTH", ...UG_CORE_PREFIXES],
+      keywords: ["physiotherapy", "sports science", "rehabilitation", "anatomy", "physiology", "kinesiology", "biomechanics", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-medical-imaging",
+      name: "BSc. Medical Imaging",
+      college: "College of Health Sciences",
+      level: "Undergraduate",
+      prefixes: ["MEDI", "RAD", "ANAT", "PHSL", "PHYS", "HLTH", ...UG_CORE_PREFIXES],
+      keywords: ["medical imaging", "radiography", "radiology", "ultrasound", "mri", "ct scan", "anatomy", "radiation physics", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-medical-laboratory-science",
+      name: "BSc. Medical Laboratory Science",
+      college: "College of Health Sciences",
+      level: "Undergraduate",
+      prefixes: ["MLS", "MEDL", "MBIO", "PATH", "BIOC", "CHEM", "ANAT", "PHSL", ...UG_CORE_PREFIXES],
+      keywords: ["medical laboratory", "hematology", "haematology", "microbiology", "clinical chemistry", "histopathology", "parasitology", "immunology", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-medical-laboratory-science-obuasi",
+      name: "BSc. Medical Laboratory Science (Obuasi Campus)",
+      college: "College of Health Sciences",
+      level: "Undergraduate",
+      prefixes: ["MLS", "MEDL", "MBIO", "PATH", "BIOC", "CHEM", "ANAT", "PHSL", ...UG_CORE_PREFIXES],
+      keywords: ["medical laboratory", "obuasi", "hematology", "microbiology", "clinical chemistry", "pathology", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-nursing",
+      name: "BSc. Nursing",
+      college: "College of Health Sciences",
+      level: "Undergraduate",
+      prefixes: ["NURS", "NUR", "ANAT", "PHSL", "PHAR", "MBIO", "HLTH", ...UG_CORE_PREFIXES],
+      keywords: ["nursing", "medical surgical", "community health", "pharmacology", "anatomy", "physiology", "patient care", "paediatric", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-nursing-obuasi",
+      name: "BSc. Nursing (Obuasi Campus)",
+      college: "College of Health Sciences",
+      level: "Undergraduate",
+      prefixes: ["NURS", "NUR", "ANAT", "PHSL", "PHAR", "HLTH", ...UG_CORE_PREFIXES],
+      keywords: ["nursing", "obuasi", "pharmacology", "anatomy", "physiology", "patient care", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-nursing-emergency-option",
+      name: "BSc. Nursing (Emergency Option)",
+      college: "College of Health Sciences",
+      level: "Undergraduate",
+      prefixes: ["NURS", "NUR", "EMER", "ANAT", "PHSL", "PHAR", ...UG_CORE_PREFIXES],
+      keywords: ["emergency nursing", "nursing", "trauma", "triage", "critical care", "resuscitation", "pharmacology", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-midwifery",
+      name: "BSc. Midwifery",
+      college: "College of Health Sciences",
+      level: "Undergraduate",
+      prefixes: ["MIDW", "MID", "NURS", "ANAT", "PHSL", "OBGY", ...UG_CORE_PREFIXES],
+      keywords: ["midwifery", "obstetrics", "maternal", "neonatal", "antenatal", "anatomy", "nursing", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-midwifery-sandwich",
+      name: "BSc. Midwifery (Sandwich)",
+      college: "College of Health Sciences",
+      level: "Undergraduate",
+      prefixes: ["MIDW", "MID", "NURS", "ANAT", "PHSL", ...UG_CORE_PREFIXES],
+      keywords: ["midwifery", "sandwich", "obstetrics", "maternal", "neonatal", "nursing", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-midwifery-obuasi",
+      name: "BSc. Midwifery (Obuasi Campus)",
+      college: "College of Health Sciences",
+      level: "Undergraduate",
+      prefixes: ["MIDW", "MID", "NURS", "ANAT", "PHSL", ...UG_CORE_PREFIXES],
+      keywords: ["midwifery", "obuasi", "obstetrics", "maternal", "neonatal", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bachelor-of-herbal-medicine",
+      name: "Bachelor of Herbal Medicine (BHM)",
+      college: "College of Health Sciences",
+      level: "Undergraduate",
+      prefixes: ["BHM", "HERB", "PHAR", "PHCG", "BOTN", "BIOC", "ANAT", ...UG_CORE_PREFIXES],
+      keywords: ["herbal medicine", "pharmacognosy", "phytochemistry", "ethnobotany", "medicinal plants", "pharmacology", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "doctor-of-pharmacy",
+      name: "Doctor of Pharmacy (Pharm D)",
+      college: "College of Health Sciences",
+      level: "Undergraduate",
+      prefixes: ["PHAR", "PHRM", "PHCH", "PHCG", "BIOC", "CHEM", "ANAT", "PHSL", ...UG_CORE_PREFIXES],
+      keywords: ["pharmacy", "pharm d", "pharmacology", "pharmaceutics", "pharmaceutical chemistry", "pharmacognosy", "clinical pharmacy", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "doctor-of-pharmacy-top-up",
+      name: "Doctor of Pharmacy (Pharm D - Top-Up)",
+      college: "College of Health Sciences",
+      level: "Undergraduate",
+      prefixes: ["PHAR", "PHRM", "PHCH", "PHCG", ...UG_CORE_PREFIXES],
+      keywords: ["pharmacy", "pharm d", "top-up", "clinical pharmacy", "pharmacotherapy", "pharmacology", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "human-biology-medicine-mbchb",
+      name: "Human Biology (Medicine) (MBChB)",
+      college: "College of Health Sciences",
+      level: "Undergraduate",
+      prefixes: ["HB", "MED", "ANAT", "PHSL", "BIOC", "PATH", "PHAR", "MBIO", "SURG", ...UG_CORE_PREFIXES],
+      keywords: ["human biology", "medicine", "mbchb", "anatomy", "physiology", "pathology", "biochemistry", "pharmacology", "clinical medicine", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bachelor-of-dental-surgery-bds",
+      name: "Bachelor of Dental Surgery (BDS)",
+      college: "College of Health Sciences",
+      level: "Undergraduate",
+      prefixes: ["BDS", "DENT", "ANAT", "PHSL", "BIOC", "PATH", "PHAR", ...UG_CORE_PREFIXES],
+      keywords: ["dental surgery", "dentistry", "bds", "oral pathology", "anatomy", "physiology", "prosthodontics", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "doctor-of-veterinary-medicine-dvm",
+      name: "Doctor of Veterinary Medicine (DVM)",
+      college: "College of Health Sciences",
+      level: "Undergraduate",
+      prefixes: ["DVM", "VET", "ANAT", "PHSL", "BIOC", "PATH", "ANSC", ...UG_CORE_PREFIXES],
+      keywords: ["veterinary medicine", "dvm", "animal health", "veterinary anatomy", "parasitology", "pathology", "zoonosis", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-disability-and-rehabilitation-studies",
+      name: "BSc. Disability and Rehabilitation Studies",
+      college: "College of Health Sciences",
+      level: "Undergraduate",
+      prefixes: ["DRS", "REHAB", "HLTH", "PH", "SOC", "PSYC", ...UG_CORE_PREFIXES],
+      keywords: ["disability", "rehabilitation", "inclusive", "occupational therapy", "public health", "community health", ...UG_CORE_KEYWORDS],
+    },
+
+    // College of Humanities and Social Sciences (24)
+    {
+      id: "bachelor-of-laws-llb",
+      name: "Bachelor of Laws (LLB)",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["LAW", "LLB", "FLAW", ...UG_CORE_PREFIXES],
+      keywords: ["law", "llb", "constitutional law", "contract law", "criminal law", "tort", "jurisprudence", "legal", "equity", "land law", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bachelor-of-laws-llb-degree-holders",
+      name: "Bachelor of Laws (LLB - Degree Holders)",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["LAW", "LLB", "FLAW", ...UG_CORE_PREFIXES],
+      keywords: ["law", "llb", "degree holders", "constitutional", "contract", "criminal", "tort", "jurisprudence", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "ba-economics",
+      name: "BA. Economics",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["ECON", "STAT", "MATH", "FIN", ...UG_CORE_PREFIXES],
+      keywords: ["economics", "microeconomics", "macroeconomics", "econometrics", "monetary", "development economics", "public finance", "statistics", "mathematics", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "ba-english",
+      name: "BA. English",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["ENGL", "LIT", "LING", ...UG_CORE_PREFIXES],
+      keywords: ["english", "literature", "grammar", "phonetics", "syntax", "semantics", "african literature", "writing", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "ba-geography-and-rural-development",
+      name: "BA. Geography and Rural Development",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["GEOG", "GRD", "GIS", "ENVS", ...UG_CORE_PREFIXES],
+      keywords: ["geography", "rural development", "climatology", "geomorphology", "population", "gis", "urban geography", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "ba-history",
+      name: "BA. History",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["HIST", "POL", "SOC", ...UG_CORE_PREFIXES],
+      keywords: ["history", "ghanaian history", "african history", "world history", "historiography", "colonial", "diplomacy", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "ba-political-studies",
+      name: "BA. Political Studies",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["POL", "POLI", "PUBA", "HIST", "LAW", ...UG_CORE_PREFIXES],
+      keywords: ["political studies", "political science", "politics", "governance", "international relations", "public policy", "comparative politics", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bachelor-of-public-administration",
+      name: "Bachelor of Public Administration",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["PUBA", "PA", "POL", "MGMT", "LAW", ...UG_CORE_PREFIXES],
+      keywords: ["public administration", "public sector", "local government", "governance", "public policy", "management", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "ba-akan-language-and-culture",
+      name: "BA. Akan Language and Culture",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["AKAN", "TWI", "LING", "CULT", ...UG_CORE_PREFIXES],
+      keywords: ["akan", "twi", "fante", "ghanaian language", "linguistics", "oral literature", "culture", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "ba-french-and-francophone-studies",
+      name: "BA. French and Francophone Studies",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["FREN", "FR", "LING", ...UG_CORE_PREFIXES],
+      keywords: ["french", "francophone", "translation", "french literature", "grammar", "linguistics", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "ba-linguistics",
+      name: "BA. Linguistics",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["LING", "ENGL", "AKAN", ...UG_CORE_PREFIXES],
+      keywords: ["linguistics", "phonology", "morphology", "syntax", "semantics", "pragmatics", "sociolinguistics", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "ba-media-and-communication-studies",
+      name: "BA. Media and Communication Studies",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["MCS", "COMM", "JOUR", "ENGL", ...UG_CORE_PREFIXES],
+      keywords: ["media", "communication studies", "journalism", "public relations", "broadcasting", "advertising", "digital media", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "ba-religion-and-human-development",
+      name: "BA. Religion and Human Development",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["REL", "RHD", "PHIL", "SOC", ...UG_CORE_PREFIXES],
+      keywords: ["religion", "theology", "ethics", "african traditional religion", "human development", "islam", "christianity", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "ba-sociology",
+      name: "BA. Sociology",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["SOC", "SOCI", "SOWK", "STAT", ...UG_CORE_PREFIXES],
+      keywords: ["sociology", "social theory", "criminology", "anthropology", "research methods", "demography", "social structure", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "ba-social-work",
+      name: "BA. Social Work",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["SOWK", "SW", "SOC", "PSYC", ...UG_CORE_PREFIXES],
+      keywords: ["social work", "social welfare", "counselling", "counseling", "community development", "child welfare", "sociology", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-business-admin-hrm",
+      name: "BSc. Business Administration (Human Resource Management)",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["HRM", "MGMT", "BUS", "BA", "ACF", "ECON", "STAT", "MATH", ...UG_CORE_PREFIXES],
+      keywords: ["business administration", "human resource", "hrm", "organizational behaviour", "labour law", "management", "economics", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-business-admin-hrm-obuasi",
+      name: "BSc. Business Administration (HRM - Obuasi Campus)",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["HRM", "MGMT", "BUS", "BA", "ECON", "STAT", ...UG_CORE_PREFIXES],
+      keywords: ["business administration", "human resource", "hrm", "obuasi", "management", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-business-admin-marketing-ib",
+      name: "BSc. Business Administration (Marketing / International Business)",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["MKT", "IB", "BUS", "BA", "MGMT", "ECON", "STAT", "MATH", ...UG_CORE_PREFIXES],
+      keywords: ["business administration", "marketing", "international business", "consumer behaviour", "brand", "trade", "management", "economics", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-business-admin-marketing-ib-obuasi",
+      name: "BSc. Business Administration (Marketing / Intl. Business - Obuasi)",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["MKT", "IB", "BUS", "BA", "MGMT", "ECON", ...UG_CORE_PREFIXES],
+      keywords: ["business administration", "marketing", "international business", "obuasi", "management", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-business-admin-accounting-finance",
+      name: "BSc. Business Administration (Accounting / Banking and Finance)",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["ACCT", "ACF", "FIN", "BAF", "BUS", "BA", "ECON", "STAT", "MATH", ...UG_CORE_PREFIXES],
+      keywords: ["business administration", "accounting", "banking", "finance", "auditing", "taxation", "financial reporting", "corporate finance", "economics", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-business-admin-accounting-finance-obuasi",
+      name: "BSc. Business Administration (Accounting / Banking & Finance - Obuasi)",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["ACCT", "ACF", "FIN", "BAF", "BUS", "BA", "ECON", ...UG_CORE_PREFIXES],
+      keywords: ["business administration", "accounting", "banking", "finance", "obuasi", "auditing", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-business-admin-logistics-bit",
+      name: "BSc. Business Administration (Logistics & Supply Chain / Business IT)",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["LSCM", "BIT", "SCM", "IT", "BUS", "BA", "ECON", "STAT", "MATH", ...UG_CORE_PREFIXES],
+      keywords: ["business administration", "logistics", "supply chain", "procurement", "business information technology", "mis", "operations", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-business-admin-logistics-bit-obuasi",
+      name: "BSc. Business Administration (Logistics & Supply Chain / BIT - Obuasi)",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["LSCM", "BIT", "SCM", "IT", "BUS", "BA", ...UG_CORE_PREFIXES],
+      keywords: ["business administration", "logistics", "supply chain", "business information technology", "obuasi", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-hospitality-and-tourism-management",
+      name: "BSc. Hospitality and Tourism Management",
+      college: "College of Humanities and Social Sciences",
+      level: "Undergraduate",
+      prefixes: ["HTM", "TOUR", "HOSP", "MGMT", "MKT", ...UG_CORE_PREFIXES],
+      keywords: ["hospitality", "tourism", "hotel management", "catering", "events", "travel", "service management", ...UG_CORE_KEYWORDS],
+    },
+
+    // College of Science (17)
+    {
+      id: "bsc-biochemistry",
+      name: "BSc. Biochemistry",
+      college: "College of Science",
+      level: "Undergraduate",
+      prefixes: ["BIOC", "BCH", "CHEM", "BIOL", "MBIO", "STAT", ...UG_CORE_PREFIXES],
+      keywords: ["biochemistry", "enzymology", "metabolism", "molecular biology", "proteins", "organic chemistry", "biology", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-food-science-and-technology",
+      name: "BSc. Food Science and Technology",
+      college: "College of Science",
+      level: "Undergraduate",
+      prefixes: ["FDST", "FST", "BIOC", "CHEM", "MBIO", "BIOL", ...UG_CORE_PREFIXES],
+      keywords: ["food science", "food technology", "food chemistry", "food microbiology", "nutrition", "preservation", "processing", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-dietetics",
+      name: "BSc. Dietetics",
+      college: "College of Science",
+      level: "Undergraduate",
+      prefixes: ["DIET", "NUTR", "BIOC", "PHSL", "ANAT", "FDST", ...UG_CORE_PREFIXES],
+      keywords: ["dietetics", "clinical nutrition", "diet therapy", "human nutrition", "biochemistry", "physiology", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-human-nutrition",
+      name: "BSc. Human Nutrition",
+      college: "College of Science",
+      level: "Undergraduate",
+      prefixes: ["NUTR", "DIET", "BIOC", "PHSL", "FDST", "BIOL", ...UG_CORE_PREFIXES],
+      keywords: ["human nutrition", "nutrition", "dietetics", "community nutrition", "micronutrients", "biochemistry", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-biological-science",
+      name: "BSc. Biological Science",
+      college: "College of Science",
+      level: "Undergraduate",
+      prefixes: ["BIOL", "BIO", "BOTN", "ZOOL", "BIOC", "CHEM", "STAT", ...UG_CORE_PREFIXES],
+      keywords: ["biological science", "biology", "botany", "zoology", "genetics", "microbiology", "ecology", "cell biology", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-environmental-science",
+      name: "BSc. Environmental Science",
+      college: "College of Science",
+      level: "Undergraduate",
+      prefixes: ["ENVS", "ENV", "BIOL", "CHEM", "GEOG", "STAT", ...UG_CORE_PREFIXES],
+      keywords: ["environmental science", "ecology", "pollution", "toxicology", "waste management", "climate", "chemistry", "biology", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-environmental-science-obuasi",
+      name: "BSc. Environmental Science (Obuasi Campus)",
+      college: "College of Science",
+      level: "Undergraduate",
+      prefixes: ["ENVS", "ENV", "BIOL", "CHEM", "GEOG", ...UG_CORE_PREFIXES],
+      keywords: ["environmental science", "obuasi", "ecology", "pollution", "environmental management", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "doctor-of-optometry",
+      name: "Doctor of Optometry",
+      college: "College of Science",
+      level: "Undergraduate",
+      prefixes: ["OPT", "OPTO", "ANAT", "PHSL", "PHYS", "BIOC", "PHAR", ...UG_CORE_PREFIXES],
+      keywords: ["optometry", "optics", "ocular", "vision science", "ophthalmic", "anatomy", "physiology", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-chemistry",
+      name: "BSc. Chemistry",
+      college: "College of Science",
+      level: "Undergraduate",
+      prefixes: ["CHEM", "BIOC", "MATH", "PHYS", ...UG_CORE_PREFIXES],
+      keywords: ["chemistry", "organic chemistry", "inorganic chemistry", "physical chemistry", "analytical chemistry", "spectroscopy", "thermodynamics", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-science-laboratory-technology",
+      name: "BSc. Science Laboratory Technology",
+      college: "College of Science",
+      level: "Undergraduate",
+      prefixes: ["SLT", "CHEM", "BIOL", "PHYS", "MBIO", "BIOC", ...UG_CORE_PREFIXES],
+      keywords: ["science laboratory", "instrumentation", "analytical chemistry", "microbiology", "biochemistry", "laboratory", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-mathematics",
+      name: "BSc. Mathematics",
+      college: "College of Science",
+      level: "Undergraduate",
+      prefixes: ["MATH", "STAT", "ACTS", "CSM", "PHYS", ...UG_CORE_PREFIXES],
+      keywords: ["mathematics", "calculus", "linear algebra", "real analysis", "differential equations", "abstract algebra", "topology", "numerical analysis", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-physics",
+      name: "BSc. Physics",
+      college: "College of Science",
+      level: "Undergraduate",
+      prefixes: ["PHYS", "PHY", "MATH", "CHEM", ...UG_CORE_PREFIXES],
+      keywords: ["physics", "mechanics", "electromagnetism", "quantum mechanics", "optics", "thermodynamics", "solid state", "mathematics", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-computer-science",
+      name: "BSc. Computer Science",
+      college: "College of Science",
+      level: "Undergraduate",
+      prefixes: ["CSM", "CS", "CSC", "IT", "BIT", "COE", "MATH", "STAT", ...UG_CORE_PREFIXES],
+      keywords: ["computer science", "programming", "algorithms", "data structures", "database", "operating systems", "software engineering", "networking", "discrete mathematics", "calculus", "mathematics", "statistics", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-statistics",
+      name: "BSc. Statistics",
+      college: "College of Science",
+      level: "Undergraduate",
+      prefixes: ["STAT", "MATH", "ACTS", "CSM", "ECON", ...UG_CORE_PREFIXES],
+      keywords: ["statistics", "probability", "regression", "inference", "sampling", "stochastic", "biostatistics", "mathematics", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-actuarial-science",
+      name: "BSc. Actuarial Science",
+      college: "College of Science",
+      level: "Undergraduate",
+      prefixes: ["ACTS", "ACT", "STAT", "MATH", "FIN", "ECON", ...UG_CORE_PREFIXES],
+      keywords: ["actuarial science", "actuarial", "insurance", "risk theory", "financial mathematics", "probability", "statistics", "mathematics", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-meteorology-and-climate-science",
+      name: "BSc. Meteorology and Climate Science",
+      college: "College of Science",
+      level: "Undergraduate",
+      prefixes: ["METE", "MCS", "PHYS", "MATH", "GEOG", "ENVS", ...UG_CORE_PREFIXES],
+      keywords: ["meteorology", "climate science", "atmospheric", "climatology", "weather forecasting", "physics", "mathematics", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "bsc-information-technology",
+      name: "BSc. Information Technology",
+      college: "College of Science",
+      level: "Undergraduate",
+      prefixes: ["IT", "BIT", "CSM", "CS", "COE", "MATH", "STAT", ...UG_CORE_PREFIXES],
+      keywords: ["information technology", "it", "web development", "networking", "cybersecurity", "database", "programming", "systems administration", "computer science", ...UG_CORE_KEYWORDS],
+    },
+
+    // Institute of Distance Learning — Diploma Programmes (8)
+    {
+      id: "diploma-architectural-technology",
+      name: "Diploma in Architectural Technology",
+      college: "Institute of Distance Learning (Diploma)",
+      level: "Diploma",
+      prefixes: ["ARCH", "BT", "CAD", ...UG_CORE_PREFIXES],
+      keywords: ["architectural technology", "architecture", "drafting", "building construction", "cad", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "diploma-business-administration",
+      name: "Diploma in Business Administration",
+      college: "Institute of Distance Learning (Diploma)",
+      level: "Diploma",
+      prefixes: ["BUS", "BA", "ACCT", "MGMT", "MKT", "ECON", ...UG_CORE_PREFIXES],
+      keywords: ["business administration", "accounting", "management", "marketing", "business", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "diploma-food-manufacturing",
+      name: "Diploma in Food Manufacturing",
+      college: "Institute of Distance Learning (Diploma)",
+      level: "Diploma",
+      prefixes: ["FDST", "FOOD", "BIOC", "MBIO", ...UG_CORE_PREFIXES],
+      keywords: ["food manufacturing", "food science", "food processing", "hygiene", "quality control", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "diploma-french-for-professions",
+      name: "Diploma in French for Professions",
+      college: "Institute of Distance Learning (Diploma)",
+      level: "Diploma",
+      prefixes: ["FREN", "FR", "COMM", "ENGL"],
+      keywords: ["french", "francophone", "business french", "translation", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "diploma-health-communication",
+      name: "Diploma in Health Communication",
+      college: "Institute of Distance Learning (Diploma)",
+      level: "Diploma",
+      prefixes: ["HLTH", "PH", "COMM", "MCS", ...UG_CORE_PREFIXES],
+      keywords: ["health communication", "public health", "health promotion", "communication", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "diploma-health-information-management",
+      name: "Diploma in Health Information Management",
+      college: "Institute of Distance Learning (Diploma)",
+      level: "Diploma",
+      prefixes: ["HIM", "HLTH", "IT", "STAT", ...UG_CORE_PREFIXES],
+      keywords: ["health information", "medical records", "biostatistics", "health informatics", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "diploma-horticulture-management",
+      name: "Diploma in Horticulture Management",
+      college: "Institute of Distance Learning (Diploma)",
+      level: "Diploma",
+      prefixes: ["HORT", "AGRI", "CROP", "SOIL", ...UG_CORE_PREFIXES],
+      keywords: ["horticulture", "agriculture", "nursery", "crop production", "landscape", ...UG_CORE_KEYWORDS],
+    },
+    {
+      id: "diploma-information-technology",
+      name: "Diploma in Information Technology",
+      college: "Institute of Distance Learning (Diploma)",
+      level: "Diploma",
+      prefixes: ["IT", "CSM", "BIT", "CSC", ...UG_CORE_PREFIXES],
+      keywords: ["information technology", "computing", "networking", "database", "programming", ...UG_CORE_KEYWORDS],
+    },
+
+    // School of Graduate Studies & IDL — Postgraduate Programmes (24)
+    {
+      id: "mba-cmba",
+      name: "Master of Business Administration (CMBA)",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["MBA", "CMBA", "BUS", "MGMT", "FIN", "ACCT", "MKT", "ECON"],
+      keywords: ["mba", "business administration", "corporate strategy", "managerial economics", "accounting", "finance", "marketing"],
+    },
+    {
+      id: "mba-international-business",
+      name: "MBA International Business",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["MBA", "IB", "BUS", "MGMT", "ECON", "FIN"],
+      keywords: ["mba", "international business", "global trade", "multinational", "strategy", "economics"],
+    },
+    {
+      id: "master-of-public-administration",
+      name: "Master of Public Administration",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["MPA", "PUBA", "POL", "MGMT"],
+      keywords: ["public administration", "public policy", "governance", "public finance", "leadership"],
+    },
+    {
+      id: "master-of-education",
+      name: "Master of Education",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["MED", "EDU", "EDUC"],
+      keywords: ["master of education", "curriculum", "educational leadership", "pedagogy", "research methods"],
+    },
+    {
+      id: "master-of-engineering",
+      name: "Master of Engineering",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["MENG", "ENG", "CE", "ME", "EE", "CHE"],
+      keywords: ["master of engineering", "engineering management", "civil engineering", "mechanical engineering", "electrical engineering"],
+    },
+    {
+      id: "msc-accounting-and-finance",
+      name: "MSc. Accounting and Finance",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["ACCT", "ACF", "FIN", "BAF", "MBA"],
+      keywords: ["accounting and finance", "accounting", "finance", "auditing", "corporate finance", "financial reporting"],
+    },
+    {
+      id: "msc-actuarial-science",
+      name: "MSc. Actuarial Science",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["ACTS", "STAT", "MATH", "FIN"],
+      keywords: ["actuarial science", "stochastic", "risk", "statistics", "financial mathematics"],
+    },
+    {
+      id: "msc-agribusiness-management",
+      name: "MSc. Agribusiness Management",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["AGBM", "AGEC", "AGRI", "ECON", "MGMT"],
+      keywords: ["agribusiness", "agricultural economics", "value chain", "agriculture", "economics"],
+    },
+    {
+      id: "msc-agricultural-extension-and-dev-comm",
+      name: "MSc. Agricultural Extension and Development Communication",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["AGEX", "AGRI", "COMM", "SOC"],
+      keywords: ["agricultural extension", "development communication", "rural development", "agriculture"],
+    },
+    {
+      id: "msc-applied-meteorology",
+      name: "MSc. Applied Meteorology",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["METE", "PHYS", "ENVS", "GEOG"],
+      keywords: ["applied meteorology", "meteorology", "climate", "atmospheric", "physics"],
+    },
+    {
+      id: "msc-applied-statistics",
+      name: "MSc. Applied Statistics",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["STAT", "MATH", "ECON"],
+      keywords: ["applied statistics", "statistics", "biostatistics", "regression", "econometrics", "data analysis"],
+    },
+    {
+      id: "msc-biological-science",
+      name: "MSc. Biological Science",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["BIOL", "BOTN", "ZOOL", "MBIO", "BIOC"],
+      keywords: ["biological science", "biology", "molecular", "ecology", "microbiology", "biochemistry"],
+    },
+    {
+      id: "msc-biotechnology",
+      name: "MSc. Biotechnology",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["BIOT", "BIOC", "BIOL", "MBIO", "GENE"],
+      keywords: ["biotechnology", "genetic engineering", "bioinformatics", "molecular biology", "biochemistry"],
+    },
+    {
+      id: "msc-business-consulting-and-erm",
+      name: "MSc. Business Consulting and Enterprise Risk Management",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["BCER", "ERM", "MGMT", "BUS", "FIN", "MBA"],
+      keywords: ["business consulting", "enterprise risk", "risk management", "strategy", "governance"],
+    },
+    {
+      id: "msc-communication-systems-and-network-engineering",
+      name: "MSc. Communication Systems and Network Engineering",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["TE", "COE", "EE", "CSM", "IT"],
+      keywords: ["communication systems", "network engineering", "telecommunications", "wireless", "signal processing"],
+    },
+    {
+      id: "msc-corporate-governance-and-strategic-leadership",
+      name: "MSc. Corporate Governance and Strategic Leadership",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["CGSL", "MGMT", "BUS", "MBA", "LAW"],
+      keywords: ["corporate governance", "strategic leadership", "leadership", "ethics", "strategy", "management"],
+    },
+    {
+      id: "msc-cyber-security-and-digital-forensics",
+      name: "MSc. Cyber Security and Digital Forensics",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["CSDF", "CYBR", "CSM", "IT", "COE"],
+      keywords: ["cyber security", "cybersecurity", "digital forensics", "cryptography", "network security", "information security"],
+    },
+    {
+      id: "msc-development-finance",
+      name: "MSc. Development Finance",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["DEFI", "FIN", "ECON", "BAF", "ACF"],
+      keywords: ["development finance", "finance", "microfinance", "economics", "public finance", "banking"],
+    },
+    {
+      id: "msc-economics",
+      name: "MSc. Economics",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["ECON", "STAT", "MATH"],
+      keywords: ["economics", "econometrics", "macroeconomics", "microeconomics", "economic policy"],
+    },
+    {
+      id: "msc-energy-and-sustainable-management",
+      name: "MSc. Energy and Sustainable Management",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["ENRG", "ME", "EE", "ENVS", "MGMT"],
+      keywords: ["energy", "renewable energy", "sustainable management", "power", "climate policy"],
+    },
+    {
+      id: "msc-environmental-science",
+      name: "MSc. Environmental Science",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["ENVS", "ENV", "BIOL", "CHEM"],
+      keywords: ["environmental science", "environmental impact", "ecology", "pollution", "climate"],
+    },
+    {
+      id: "msc-food-quality-management",
+      name: "MSc. Food Quality Management",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["FDST", "FQM", "MBIO", "BIOC", "CHEM"],
+      keywords: ["food quality", "food safety", "haccp", "food science", "microbiology"],
+    },
+    {
+      id: "msc-forensic-science",
+      name: "MSc. Forensic Science",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["FORS", "BIOC", "CHEM", "BIOL", "LAW"],
+      keywords: ["forensic science", "forensics", "toxicology", "dna", "criminalistics", "chemistry"],
+    },
+    {
+      id: "msc-health-informatics",
+      name: "MSc. Health Informatics",
+      college: "School of Graduate Studies & IDL (Postgraduate)",
+      level: "Postgraduate",
+      prefixes: ["HINF", "HLTH", "IT", "CSM", "STAT"],
+      keywords: ["health informatics", "electronic health", "biostatistics", "epidemiology", "information technology"],
+    },
+  ];
+
+  const COLLEGES = Array.from(new Set(COURSES.map((c) => c.college)));
+
+  function cleanStr(val) {
+    return String(val || "").replace(/\s+/g, " ").trim();
+  }
+
+  function findProgramme(value) {
+    const raw = cleanStr(value);
+    if (!raw) return null;
+    const lower = raw.toLowerCase();
+    return (
+      COURSES.find((c) => c.id.toLowerCase() === lower) ||
+      COURSES.find((c) => c.name.toLowerCase() === lower) ||
+      COURSES.find((c) => c.name.toLowerCase().includes(lower)) ||
+      null
+    );
+  }
+
+  function extractCodePrefix(courseCode) {
+    const cleaned = cleanStr(courseCode).toUpperCase().replace(/[^A-Z0-9]/g, "");
+    const m = cleaned.match(/^([A-Z]+)/);
+    return m ? m[1] : "";
+  }
+
+  function doesQuestionMatchProgramme(question, programmeOrName) {
+    const prog =
+      typeof programmeOrName === "object" && programmeOrName && programmeOrName.id
+        ? programmeOrName
+        : findProgramme(programmeOrName);
+    if (!prog) return true;
+    if (!question || typeof question !== "object") return false;
+
+    const codePrefix = extractCodePrefix(question.course_code);
+    if (codePrefix && Array.isArray(prog.prefixes)) {
+      if (prog.prefixes.includes(codePrefix)) {
+        return true;
+      }
+    }
+
+    const haystack = [
+      question.department || "",
+      question.course_title || "",
+      question.course_code || "",
+      question.description || "",
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    if (Array.isArray(prog.keywords)) {
+      for (let i = 0; i < prog.keywords.length; i++) {
+        const kw = prog.keywords[i];
+        if (!kw) continue;
+        if (kw.length <= 3) {
+          const re = new RegExp(`\\b${kw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+          if (re.test(haystack)) return true;
+        } else if (haystack.includes(kw.toLowerCase())) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  function filterQuestionsForProgramme(questions, programmeOrName) {
+    if (!Array.isArray(questions)) return [];
+    const prog =
+      typeof programmeOrName === "object" && programmeOrName && programmeOrName.id
+        ? programmeOrName
+        : findProgramme(programmeOrName);
+    if (!prog) return questions.slice();
+    return questions.filter((q) => doesQuestionMatchProgramme(q, prog));
+  }
+
+  function searchProgrammes(query) {
+    const q = cleanStr(query).toLowerCase();
+    if (!q) return COURSES.slice();
+    return COURSES.filter(
+      (c) =>
+        c.name.toLowerCase().includes(q) ||
+        c.college.toLowerCase().includes(q) ||
+        c.level.toLowerCase().includes(q) ||
+        c.prefixes.some((p) => p.toLowerCase().includes(q)) ||
+        c.keywords.some((k) => k.toLowerCase().includes(q))
+    );
+  }
+
+  global.uvKnustCourses = {
+    COURSES: COURSES,
+    COLLEGES: COLLEGES,
+    findProgramme: findProgramme,
+    doesQuestionMatchProgramme: doesQuestionMatchProgramme,
+    filterQuestionsForProgramme: filterQuestionsForProgramme,
+    searchProgrammes: searchProgrammes,
+  };
+})(typeof window !== "undefined" ? window : globalThis);

@@ -293,7 +293,8 @@ body.auth-page {
   letter-spacing: 0.005em;
 }
 
-.auth-card input {
+.auth-card input,
+.auth-card select {
   width: 100%;
   min-height: 46px;
   padding: 11px 14px;
@@ -305,12 +306,36 @@ body.auth-page {
   transition: border-color 0.16s ease, background-color 0.16s ease, box-shadow 0.16s ease;
 }
 
+.auth-card select {
+  cursor: pointer;
+}
+
+.auth-prog-count {
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--mut);
+  white-space: nowrap;
+}
+
+.auth-prog-hint {
+  font-size: 0.81rem;
+  line-height: 1.45;
+  color: var(--mut);
+  margin: 0;
+}
+
+.auth-prog-hint.is-selected {
+  color: var(--c);
+}
+
 .auth-card input::placeholder {
   color: var(--mut);
   opacity: 0.72;
 }
 
-.auth-card input:focus-visible {
+.auth-card input:focus-visible,
+.auth-card select:focus-visible {
   outline: none;
   border-color: var(--c);
   background: var(--input-focus-bg);
@@ -559,7 +584,8 @@ body.auth-page {
     gap: 16px;
   }
 
-  .auth-card input {
+  .auth-card input,
+  .auth-card select {
     min-height: 48px;
     padding: 12px 14px;
   }

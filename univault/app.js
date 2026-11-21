@@ -1,4 +1,4 @@
-let Q = [], user = null, P = {}, hist = [], cur = null, quiz = [], myUploads = [], myPayouts = [], dashStatus = "all", activeAttachment = null, dupCheckTimer = null, isAdminUser = false, lastUploadBody = "", isUsingOfflineCache = false, appSettings = { price_ghs: Number(C.PRICE_GHS || 30), free_ai_limit: 5 };
+let ALL_Q = [], Q = [], user = null, userProgramme = null, P = {}, hist = [], cur = null, quiz = [], myUploads = [], myPayouts = [], dashStatus = "all", activeAttachment = null, dupCheckTimer = null, isAdminUser = false, lastUploadBody = "", isUsingOfflineCache = false, appSettings = { price_ghs: Number(C.PRICE_GHS || 30), free_ai_limit: 5 };
 
 function getOfflineKey(kind) {
   const uid = user?.id || "anon";
@@ -155,7 +155,13 @@ const initialParams = new URLSearchParams(location.search);
       return location.replace("signup.html?next=" + encodeURIComponent(nextDest));
     }
     user = session.user;
+    userProgramme = resolveUserProgramme();
     await Promise.allSettled([refresh(), load()]);
+    updateProgrammeUi();
+
+    if (!isAdminUser && !userProgramme && window.uvKnustCourses) {
+      openProgrammeDialog(false);
+    }
 
     const initView = initialParams.get("view");
     const initPaper = initialParams.get("paper");
@@ -371,6 +377,272 @@ async function refresh() {
   renderDashboard();
 }
 
+function resolveUserProgramme() {
+  const api = window.uvKnustCourses;
+  if (!api) return null;
+  const meta = user?.user_metadata || {};
+  const fromMeta = api.findProgramme(meta.programme_id || meta.programme);
+  if (fromMeta) return fromMeta;
+
+  try {
+    if (user?.id) {
+      const raw = localStorage.getItem(`uv_user_programme_${user.id}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        const found = api.findProgramme(parsed?.id || parsed?.name);
+        if (found) return found;
+      }
+    }
+    const cleanEmail = String(user?.email || "").trim().toLowerCase();
+    if (cleanEmail) {
+      const byEmailRaw = localStorage.getItem("uv_prog_by_email");
+      const byEmail = byEmailRaw ? JSON.parse(byEmailRaw) : {};
+      if (byEmail?.[cleanEmail]) {
+        const found = api.findProgramme(byEmail[cleanEmail]);
+        if (found) return found;
+      }
+    }
+  } catch {}
+  return null;
+}
+
+function saveUserProgramme(prog) {
+  if (!prog?.id) return;
+  userProgramme = prog;
+  try {
+    if (user?.id) {
+      localStorage.setItem(
+        `uv_user_programme_${user.id}`,
+        JSON.stringify({ id: prog.id, name: prog.name, college: prog.college, updatedAt: Date.now() })
+      );
+    }
+    const cleanEmail = String(user?.email || "").trim().toLowerCase();
+    if (cleanEmail) {
+      const raw = localStorage.getItem("uv_prog_by_email");
+      const map = raw ? JSON.parse(raw) : {};
+      map[cleanEmail] = prog.id;
+      localStorage.setItem("uv_prog_by_email", JSON.stringify(map));
+    }
+  } catch {}
+}
+
+function updateProgrammeUi() {
+  const banner = $("#activeProgrammeBanner");
+  const drawerProg = $("#drawerProg");
+  const changeBtn = $("#changeProgBtn");
+
+  if (banner) {
+    if (isAdminUser) {
+      banner.hidden = false;
+      banner.textContent = "Admin access: viewing all KNUST departments and uploaded papers.";
+    } else if (userProgramme) {
+      banner.hidden = false;
+      banner.innerHTML = `Programme: <strong>${esc(userProgramme.name)}</strong> (${esc(userProgramme.college)}) · `;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "prog-change-link";
+      btn.textContent = "Change programme";
+      btn.onclick = () => openProgrammeDialog(true);
+      banner.append(btn);
+    } else {
+      banner.hidden = true;
+      banner.textContent = "";
+    }
+  }
+
+  if (drawerProg) {
+    if (userProgramme && !isAdminUser) {
+      drawerProg.hidden = false;
+      drawerProg.textContent = userProgramme.name;
+    } else {
+      drawerProg.hidden = true;
+      drawerProg.textContent = "";
+    }
+  }
+  if (changeBtn) {
+    changeBtn.hidden = isAdminUser;
+  }
+}
+
+function populateModalProgrammeOptions(query = "", preferredId = "") {
+  const sel = $("#modalProgSelect");
+  const countEl = $("#modalProgCount");
+  const hintEl = $("#modalProgHint");
+  const api = window.uvKnustCourses;
+  if (!sel || !api) return;
+
+  const currentVal = preferredId || sel.value || "";
+  const matches = api.searchProgrammes(query);
+  const total = api.COURSES.length;
+
+  sel.innerHTML = "";
+  const def = document.createElement("option");
+  def.value = "";
+  def.textContent = matches.length
+    ? query.trim()
+      ? `Select matching KNUST course (${matches.length} found)...`
+      : `Select your KNUST course offering (${total} courses)...`
+    : "No matching KNUST courses — clear search";
+  sel.append(def);
+
+  api.COLLEGES.forEach((college) => {
+    const items = matches.filter((c) => c.college === college);
+    if (!items.length) return;
+    const og = document.createElement("optgroup");
+    og.label = college;
+    items.forEach((c) => {
+      const opt = document.createElement("option");
+      opt.value = c.id;
+      opt.textContent = c.name;
+      og.append(opt);
+    });
+    sel.append(og);
+  });
+
+  sel.value = currentVal && matches.some((c) => c.id === currentVal) ? currentVal : "";
+  if (countEl) {
+    countEl.textContent = query.trim() ? `${matches.length} of ${total} programmes` : `${total} programmes`;
+  }
+  if (hintEl) {
+    const picked = api.findProgramme(sel.value);
+    hintEl.textContent = picked
+      ? `${picked.college} · Questions and AI Tutor will filter for ${picked.name}.`
+      : "Determines which KNUST past examination papers unlock in your vault.";
+  }
+}
+
+function openProgrammeDialog(allowCancel = true) {
+  const dlg = $("#programmeDialog");
+  if (!dlg || !window.uvKnustCourses) return;
+  if ($("#modalProgSearch")) $("#modalProgSearch").value = "";
+  if ($("#modalProgMsg")) {
+    $("#modalProgMsg").hidden = true;
+    $("#modalProgMsg").textContent = "";
+  }
+  populateModalProgrammeOptions("", userProgramme?.id || "");
+  if ($("#modalProgCancel")) $("#modalProgCancel").hidden = !allowCancel;
+  dlg.dataset.required = allowCancel ? "0" : "1";
+  if (!dlg.open) dlg.showModal();
+}
+
+if ($("#changeProgBtn")) {
+  $("#changeProgBtn").onclick = () => {
+    setMenuOpen(false);
+    openProgrammeDialog(true);
+  };
+}
+
+if ($("#modalProgCancel")) {
+  $("#modalProgCancel").onclick = () => {
+    const dlg = $("#programmeDialog");
+    if (dlg?.open) dlg.close();
+  };
+}
+
+if ($("#modalProgSearch")) {
+  $("#modalProgSearch").addEventListener("input", (e) => {
+    populateModalProgrammeOptions(e.target.value, $("#modalProgSelect")?.value || "");
+  });
+}
+
+if ($("#modalProgSelect")) {
+  $("#modalProgSelect").addEventListener("change", () => {
+    const picked = window.uvKnustCourses?.findProgramme($("#modalProgSelect").value);
+    if ($("#modalProgHint")) {
+      $("#modalProgHint").textContent = picked
+        ? `${picked.college} · Questions and AI Tutor will filter for ${picked.name}.`
+        : "Determines which KNUST past examination papers unlock in your vault.";
+    }
+  });
+}
+
+if ($("#programmeDialog")) {
+  $("#programmeDialog").addEventListener("cancel", (e) => {
+    if ($("#programmeDialog").dataset.required === "1") {
+      e.preventDefault();
+    }
+  });
+}
+
+if ($("#programmeDialogForm")) {
+  $("#programmeDialogForm").onsubmit = async (e) => {
+    e.preventDefault();
+    const msgEl = $("#modalProgMsg");
+    const saveBtn = $("#modalProgSave");
+    const picked = window.uvKnustCourses?.findProgramme($("#modalProgSelect")?.value || "");
+    if (!picked) {
+      if (msgEl) {
+        msgEl.hidden = false;
+        msgEl.textContent = "Please choose your KNUST course offering from the list.";
+      }
+      return;
+    }
+
+    if (saveBtn) {
+      saveBtn.disabled = true;
+      saveBtn.textContent = "Saving...";
+    }
+    try {
+      saveUserProgramme(picked);
+      if (typeof sb?.auth?.updateUser === "function") {
+        await sb.auth
+          .updateUser({
+            data: {
+              programme: picked.name,
+              programme_id: picked.id,
+              programme_college: picked.college,
+            },
+          })
+          .catch(() => {});
+      }
+      updateProgrammeUi();
+      applyProgrammeAccessFilter();
+      if ($("#programmeDialog")?.open) $("#programmeDialog").close();
+    } finally {
+      if (saveBtn) {
+        saveBtn.disabled = false;
+        saveBtn.textContent = "Save Programme";
+      }
+    }
+  };
+}
+
+function applyProgrammeAccessFilter() {
+  const api = window.uvKnustCourses;
+  if (!isAdminUser && userProgramme && api) {
+    Q = api.filterQuestionsForProgramme(ALL_Q, userProgramme);
+  } else {
+    Q = ALL_Q.slice();
+  }
+
+  const deps = [...new Set(Q.map((q) => q.department))].sort();
+  const codes = [...new Set(Q.map((q) => q.course_code))].sort();
+  if ($("#homeStatPapers")) $("#homeStatPapers").textContent = String(Q.length);
+  if ($("#homeStatCourses")) $("#homeStatCourses").textContent = String(codes.length);
+  if ($("#homeStatDepts")) $("#homeStatDepts").textContent = String(deps.length);
+
+  const prevDep = $("#dep").value || initialParams.get("dep") || "";
+  $("#dep").innerHTML =
+    '<option value="">All accessible departments</option>' +
+    deps.map((d) => `<option>${esc(d)}</option>`).join("");
+  if (prevDep && deps.includes(prevDep)) $("#dep").value = prevDep;
+
+  const initQ = initialParams.get("q");
+  if (initQ && !$("#search").value) $("#search").value = initQ;
+
+  document.querySelectorAll(".courses").forEach((s) => {
+    const prevCourse = s.value;
+    const opts = codes.map((c) => `<option>${esc(c)}</option>`).join("");
+    s.innerHTML =
+      s.id === "chatCourse"
+        ? opts + '<option value="">General (any course in programme)</option>'
+        : opts || '<option value="">General (programme focus)</option>';
+    if (prevCourse && codes.includes(prevCourse)) s.value = prevCourse;
+  });
+
+  render(false);
+}
+
 async function load() {
   isUsingOfflineCache = false;
   try {
@@ -382,40 +654,20 @@ async function load() {
     if (error || !Array.isArray(data)) {
       throw error || new Error("Could not fetch past papers.");
     }
-    Q = data;
-    writeOfflineJson("q", { items: Q, savedAt: Date.now() });
+    ALL_Q = data;
+    writeOfflineJson("q", { items: ALL_Q, savedAt: Date.now() });
   } catch {
     const cached = readOfflineJson("q");
     if (cached && Array.isArray(cached.items)) {
-      Q = cached.items;
+      ALL_Q = cached.items;
       isUsingOfflineCache = true;
     } else {
-      Q = [];
+      ALL_Q = [];
     }
   }
 
-  const deps = [...new Set(Q.map((q) => q.department))].sort();
-  const codes = [...new Set(Q.map((q) => q.course_code))].sort();
-  if ($("#homeStatPapers")) $("#homeStatPapers").textContent = String(Q.length);
-  if ($("#homeStatCourses")) $("#homeStatCourses").textContent = String(codes.length);
-  if ($("#homeStatDepts")) $("#homeStatDepts").textContent = String(deps.length);
-  $("#dep").innerHTML =
-    '<option value="">All departments</option>' +
-    deps.map((d) => `<option>${esc(d)}</option>`).join("");
-  const initDep = initialParams.get("dep");
-  const initQ = initialParams.get("q");
-  if (initDep && deps.includes(initDep)) $("#dep").value = initDep;
-  if (initQ && !$("#search").value) $("#search").value = initQ;
-  document
-    .querySelectorAll(".courses")
-    .forEach((s) => {
-      const opts = codes.map((c) => `<option>${esc(c)}</option>`).join("");
-      s.innerHTML =
-        s.id === "chatCourse"
-          ? opts + '<option value="">General (any course)</option>'
-          : opts || '<option value="">General (any course)</option>';
-    });
-  render(false);
+  updateProgrammeUi();
+  applyProgrammeAccessFilter();
 }
 
 function render(syncUrl = true) {
@@ -445,11 +697,14 @@ function render(syncUrl = true) {
   const offlineSuffix =
     offlineCount > 0 ? ` · ${offlineCount} paper${offlineCount === 1 ? "" : "s"} saved offline` : "";
   const cacheModeSuffix = isUsingOfflineCache ? " · Offline cache" : "";
+  const scopeLabel = !isAdminUser && userProgramme ? ` for ${userProgramme.name}` : "";
   $("#browseMeta").textContent = Q.length
-    ? `Showing ${courses.length} course${courses.length === 1 ? "" : "s"} · ${filtered.length} paper${filtered.length === 1 ? "" : "s"}${offlineSuffix}${cacheModeSuffix}`
+    ? `Showing ${courses.length} course${courses.length === 1 ? "" : "s"} · ${filtered.length} paper${filtered.length === 1 ? "" : "s"}${scopeLabel}${offlineSuffix}${cacheModeSuffix}`
     : isUsingOfflineCache
-      ? "Offline mode — no previously cached questions found yet."
-      : "No approved questions published yet.";
+      ? "Offline mode — no previously cached questions found for this programme yet."
+      : ALL_Q.length && !isAdminUser && userProgramme
+        ? `No uploaded past papers match ${userProgramme.name} yet.`
+        : "No approved questions published yet.";
   $("#list").innerHTML =
     courses
       .map(
@@ -462,7 +717,7 @@ function render(syncUrl = true) {
             .join("")}</div></article>`
       )
       .join("") ||
-    `<div class="card"><p style="color:var(--mut)">${Q.length ? "No approved past papers match your search." : "No approved questions yet."}</p></div>`;
+    `<div class="card"><p style="color:var(--mut)">${Q.length ? "No accessible past papers match your search." : ALL_Q.length && !isAdminUser && userProgramme ? `No uploaded past papers match ${esc(userProgramme.name)} yet. You can upload one or switch your KNUST programme.` : "No approved questions yet."}</p></div>`;
   window.uvRevealObserve?.($("#list"));
 }
 
@@ -476,7 +731,17 @@ $("#clearSearch").onclick = () => {
 
 async function openPaperById(id) {
   const found = Q.find((q) => q.id === id);
-  if (!found) return;
+  if (!found) {
+    const outOfScope = ALL_Q.find((q) => q.id === id);
+    if (outOfScope && !isAdminUser && userProgramme) {
+      $("#rt").textContent = `${outOfScope.course_code} · Outside ${userProgramme.name}`;
+      $("#rb").textContent = `This paper (${outOfScope.department || outOfScope.course_code}) is outside your selected KNUST programme (${userProgramme.name}). Use "Change programme" if you are enrolled in another programme.`;
+      $("#solve").hidden = true;
+      if ($("#explainPaper")) $("#explainPaper").hidden = true;
+      if (!$("#reader").open) $("#reader").showModal();
+    }
+    return;
+  }
   cur = found;
   syncUrlParams({ paper: id, view: null });
   $("#rt").textContent = `${cur.course_code} · ${cur.year}${cur.semester ? " Sem " + cur.semester : ""}`;
@@ -1147,8 +1412,38 @@ function renderWelcomeChatMessage() {
   );
 }
 
-function showAiErrorInBubble(bubbleEl, err) {
-  const msg = err?.message || "Could not get a response from AI Tutor.";
+function cleanAiErrorMessage(err) {
+  let msg = String(err?.message || err || "Could not get a response from AI Tutor.").trim();
+  let code = typeof err?.status === "number" ? err.status : 0;
+
+  for (let depth = 0; depth < 4; depth++) {
+    if (!msg.startsWith("{")) break;
+    try {
+      const parsed = JSON.parse(msg);
+      const inner = parsed?.error && typeof parsed.error === "object" ? parsed.error : parsed;
+      if (typeof inner?.code === "number") code = inner.code;
+      if (typeof inner?.message === "string" && inner.message.trim()) {
+        msg = inner.message.trim();
+        continue;
+      }
+      break;
+    } catch {
+      break;
+    }
+  }
+
+  if (code === 503 || /high demand|service unavailable|UNAVAILABLE|overloaded/i.test(msg)) {
+    return "AI Tutor is experiencing temporary high demand right now. Please wait a few seconds and tap Retry.";
+  }
+  if (code === 429 || /rate[- ]?limit|quota|RESOURCE_EXHAUSTED/i.test(msg)) {
+    return "AI Tutor is temporarily rate-limited due to high traffic. Please wait a moment and tap Retry.";
+  }
+  return msg;
+}
+
+function showAiErrorInBubble(bubbleEl, err, retryFn = null) {
+  const msg = cleanAiErrorMessage(err);
+  const isQuotaErr = err?.status === 402 || /premium|trial limit/i.test(msg);
   setBubbleTyping(bubbleEl, false);
   setBubbleText(bubbleEl, msg);
   setBubbleCopyable(bubbleEl, false);
@@ -1156,12 +1451,23 @@ function showAiErrorInBubble(bubbleEl, err) {
   if (bubbleEl._actions) {
     bubbleEl._actions.innerHTML = "";
     bubbleEl._actions.hidden = true;
-    if (err?.status === 402 || /premium|trial limit/i.test(msg)) {
+    if (isQuotaErr) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.textContent = "Upgrade to Premium";
       btn.onclick = () => show("pricing");
       bubbleEl._actions.append(btn);
+      bubbleEl._actions.hidden = false;
+    } else if (typeof retryFn === "function") {
+      const retryBtn = document.createElement("button");
+      retryBtn.type = "button";
+      retryBtn.className = "ghost";
+      retryBtn.textContent = "Retry";
+      retryBtn.onclick = () => {
+        bubbleEl.remove();
+        retryFn();
+      };
+      bubbleEl._actions.append(retryBtn);
       bubbleEl._actions.hidden = false;
     }
   }
@@ -1220,8 +1526,8 @@ async function ask(text) {
     const logEl = $("#log");
     if (logEl) logEl.scrollTop = logEl.scrollHeight;
   } catch (e) {
-    showAiErrorInBubble(w, e);
     hist.pop();
+    showAiErrorInBubble(w, e, () => ask(text));
   } finally {
     setAiBusy(false);
   }
@@ -1269,7 +1575,7 @@ async function requestDetailedExplanation(targetQuestion, inlineContext = "") {
     const logEl = $("#log");
     if (logEl) logEl.scrollTop = logEl.scrollHeight;
   } catch (e) {
-    showAiErrorInBubble(w, e);
+    showAiErrorInBubble(w, e, () => requestDetailedExplanation(targetQuestion, inlineContext));
   } finally {
     setAiBusy(false);
   }

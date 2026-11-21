@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { checkDuplicateQuestion, processUploadedMaterial } from './_lib/univault-ai.js';
+import { checkDuplicateQuestion, formatAiError, processUploadedMaterial } from './_lib/univault-ai.js';
 
 type VercelRequest = IncomingMessage & {
   method?: string;
@@ -108,7 +108,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       duplicateCheck: dup,
     });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : 'Failed to process uploaded file.';
-    res.status(400).json({ error: message });
+    const formatted = formatAiError(err);
+    const status = formatted.status >= 500 ? formatted.status : 400;
+    res.status(status).json({ error: formatted.message });
   }
 }

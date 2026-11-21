@@ -9,7 +9,7 @@
 <button id="menuBtn" type="button" class="menu-btn" aria-label="Open navigation menu" aria-expanded="false" aria-controls="navMenu"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg></button>
 </span>
 <div id="navMenu" class="nav-drawer" hidden>
-<div class="drawer-acct"><span>Account</span><small id="badge" class="acct-status"></small></div>
+<div class="drawer-acct"><span>Account</span><small id="badge" class="acct-status"></small><small id="drawerProg" class="acct-prog" hidden></small><button id="changeProgBtn" type="button" class="ghost drawer-prog-btn" hidden>Change KNUST programme</button></div>
 <nav aria-label="Main navigation"><button data-v="browse" class="on">Questions</button><button data-v="dashboard">Dashboard</button><button data-v="chat">AI Tutor</button><button data-v="quiz">Quiz</button><button data-v="upload">Upload &amp; Earn</button><button data-v="wallet">Wallet</button><button data-v="pricing">Premium</button></nav>
 <div class="drawer-sep"></div>
 <div class="drawer-footer"><button id="installAppBtn" type="button" class="ghost drawer-out" data-pwa-install hidden>Install App</button><button id="startTourBtn" type="button" class="ghost drawer-out">Website Tour</button><button id="out" type="button" class="ghost drawer-out">Sign out</button></div>
@@ -32,6 +32,7 @@
 <p class="home-kicker">KNUST Examination Repository</p>
 <h1>Past Examination Archive</h1>
 <p class="home-sub">Browse verified past examination papers sorted by department, course code, and academic year, or launch the AI Tutor for step-by-step derivations.</p>
+<p id="activeProgrammeBanner" class="programme-scope-line" hidden></p>
 <div class="home-actions">
 <button type="button" onclick="show('chat')">Launch AI Tutor</button>
 <button type="button" class="ghost" onclick="show('upload')">Upload &amp; Earn GH₵3</button>
@@ -141,4 +142,22 @@
 <section id="pricing" hidden><h1>Go Premium</h1><div class="glass price"><h2 id="priceDisplay">GH₵ 30 <small>/ month</small></h2><p id="priceDesc">Read every past question and enjoy unlimited AI tutor, predictions and quizzes.</p><button id="pay" type="button">Pay with Paystack</button></div></section>
 </main>
 <dialog id="reader"><h3 id="rt"></h3><pre id="rb"></pre><div class="bar"><button id="solve" type="button">Solve with AI</button><button id="explainPaper" type="button" class="ghost">Detailed Explanation</button><button type="button" class="ghost" onclick="reader.close()">Close</button></div></dialog>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" crossorigin="anonymous"></script><script src="https://js.paystack.co/v1/inline.js" crossorigin="anonymous"></script><script src="config.js"></script><script src="ocr-reader.js"></script><script src="tour.js"></script><script src="app.js"></script></body></html>
+<dialog id="programmeDialog" class="programme-dialog">
+  <h3>Select your KNUST course offering</h3>
+  <p class="programme-dialog-copy">Your selected programme determines which KNUST past examination papers and course tools you can access.</p>
+  <form id="programmeDialogForm" class="programme-dialog-form">
+    <div class="programme-dialog-meta">
+      <label for="modalProgSelect">KNUST Programme (150 official courses)</label>
+      <span id="modalProgCount" class="programme-dialog-count">150 programmes</span>
+    </div>
+    <input id="modalProgSearch" type="search" placeholder="Search 150 KNUST courses (e.g. Computer Science, Nursing, Law)" autocomplete="off" aria-label="Search 150 KNUST course offerings">
+    <select id="modalProgSelect" required></select>
+    <p id="modalProgHint" class="programme-dialog-hint">Determines which past questions unlock in your vault.</p>
+    <p id="modalProgMsg" class="programme-dialog-msg" hidden></p>
+    <div class="bar" style="margin:0;justify-content:flex-end">
+      <button id="modalProgCancel" type="button" class="ghost" hidden>Cancel</button>
+      <button id="modalProgSave" type="submit">Save Programme</button>
+    </div>
+  </form>
+</dialog>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" crossorigin="anonymous"></script><script src="https://js.paystack.co/v1/inline.js" crossorigin="anonymous"></script><script src="config.js"></script><script src="knust-courses.js"></script><script src="ocr-reader.js"></script><script src="tour.js"></script><script src="app.js"></script></body></html>

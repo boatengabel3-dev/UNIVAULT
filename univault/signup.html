@@ -110,6 +110,18 @@
               <button type="button" id="togglePw" class="pw-toggle" aria-label="Show password">Show</button>
             </div>
           </div>
+
+          <div id="programmeGroup" class="auth-field">
+            <div class="auth-label-row">
+              <label for="programme">KNUST course offering</label>
+              <span id="programmeCount" class="auth-prog-count">150 programmes</span>
+            </div>
+            <input id="programmeSearch" type="search" placeholder="Search 150 KNUST courses (e.g. Computer Science, Nursing, Law)" autocomplete="off" aria-label="Search 150 KNUST course offerings">
+            <select id="programme" name="programme" required aria-describedby="programmeHint">
+              <option value="">Select your KNUST course offering (150 courses)...</option>
+            </select>
+            <p id="programmeHint" class="auth-prog-hint">Determines which KNUST past examination papers unlock in your vault.</p>
+          </div>
         </div>
 
         <label class="auth-remember">
@@ -169,6 +181,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" crossorigin="anonymous"></script>
   <script src="config.js"></script>
+  <script src="knust-courses.js"></script>
   <script src="signup.js"></script>
 </body>
 </html>
