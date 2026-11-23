@@ -1,7 +1,9 @@
 -- UniVault schema (fresh project). If you ran the old schema, drop those tables first.
 create table questions(id uuid default gen_random_uuid() primary key,department text not null,course_code text not null,course_title text,description text,year int not null,semester int,uploader uuid references auth.users,status text default 'pending',created_at timestamptz default now());
 create table question_content(question_id uuid primary key references questions on delete cascade,content text,content_hash text,file_url text);
-create table profiles(id uuid primary key references auth.users on delete cascade,full_name text,balance int default 0,premium_until timestamptz,created_at timestamptz default now());
+create table profiles(id uuid primary key references auth.users on delete cascade,full_name text,programme_id text,programme text,balance int default 0,premium_until timestamptz,created_at timestamptz default now());
+alter table if exists public.profiles add column if not exists programme_id text;
+alter table if exists public.profiles add column if not exists programme text;
 create table payments(reference text primary key,user_id uuid,amount int,created_at timestamptz default now());
 create table payouts(id uuid default gen_random_uuid() primary key,user_id uuid references auth.users,amount int,account_name text,momo text,network text,status text default 'pending',created_at timestamptz default now());
 create table admins(user_id uuid primary key references auth.users on delete cascade);
@@ -11,10 +13,12 @@ create function is_premium() returns boolean language sql security definer stabl
 create policy "q read" on questions for select using(status='approved' or uploader=auth.uid() or is_admin());
 create policy "content read" on question_content for select using(is_admin() or (is_premium() and exists(select 1 from questions q where q.id=question_id and q.status='approved')) or exists(select 1 from questions q where q.id=question_id and q.uploader=auth.uid()));
 create policy "own profile" on profiles for select using(auth.uid()=id or is_admin());
+drop policy if exists "own profile programme update" on profiles;
+create policy "own profile programme update" on profiles for update using(auth.uid()=id) with check(auth.uid()=id);
 create policy "admin payments" on payments for select using(is_admin());
 create policy "own payouts" on payouts for select using(user_id=auth.uid() or is_admin());
 create policy "am i admin" on admins for select using(user_id=auth.uid());
-create or replace function public.new_profile() returns trigger language plpgsql security definer set search_path = public as $$ begin insert into public.profiles(id,full_name) values(new.id,coalesce(new.raw_user_meta_data->>'full_name', new.raw_user_meta_data->>'name')) on conflict (id) do nothing; return new; end $$;
+create or replace function public.new_profile() returns trigger language plpgsql security definer set search_path = public as $$ begin insert into public.profiles(id,full_name,programme_id,programme) values(new.id,coalesce(new.raw_user_meta_data->>'full_name', new.raw_user_meta_data->>'name'),nullif(trim(coalesce(new.raw_user_meta_data->>'programme_id','')),''),nullif(trim(coalesce(new.raw_user_meta_data->>'programme','')),'')) on conflict (id) do update set programme_id=coalesce(excluded.programme_id,public.profiles.programme_id),programme=coalesce(excluded.programme,public.profiles.programme); return new; end $$;
 drop trigger if exists on_signup on auth.users;
 create trigger on_signup after insert on auth.users for each row execute function public.new_profile();
 

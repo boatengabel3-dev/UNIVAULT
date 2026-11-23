@@ -163,6 +163,7 @@ app.post('/api/ai-chat', async (req, res) => {
       userId,
       mode: body.mode,
       course: body.course,
+      programme: body.programme,
       messages: body.messages,
       count: body.count,
       instructions: body.instructions,

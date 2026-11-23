@@ -63,6 +63,11 @@ $("#aout").onclick = async () => {
     if (!a) return location.replace("app.html");
     document.body.hidden = false;
     await load();
+  } catch (err) {
+    if (typeof isInvalidRefreshTokenError === "function" && isInvalidRefreshTokenError(err)) {
+      clearStaleSupabaseAuthStorage?.(sb);
+    }
+    location.replace("index.html");
   } finally {
     window.dispatchEvent(new CustomEvent("uv:rendered"));
   }

@@ -14,11 +14,6 @@ let mode = urlParams.get("mode") === "up" ? "up" : "in";
 let isSubmitting = false;
 let isRedirecting = false;
 let isRecoveryMode = authFlowType === "recovery" && !urlAuthError;
-let lastPendingEmail = "";
-
-function getRedirectBaseUrl() {
-  return `${location.origin}/signup.html?mode=in`;
-}
 
 function getSafeNextUrl() {
   try {
@@ -46,14 +41,9 @@ function setRecMsg(text, isOk = false) {
   m.classList.toggle("ok", Boolean(isOk));
 }
 
-function showResendButton(email) {
-  lastPendingEmail = String(email || "").trim().toLowerCase();
-  const btn = $("#resendVerifyBtn");
-  if (btn) btn.hidden = !lastPendingEmail;
-}
-
 const SAVED_EMAIL_KEY = "uv_saved_email";
 const PROG_BY_EMAIL_KEY = "uv_prog_by_email";
+const LAST_PROG_KEY = "uv_last_programme_id";
 
 function readProgByEmailMap() {
   try {
@@ -77,6 +67,7 @@ function saveUserProgrammeLocally(userId, email, prog) {
     if (userId) {
       localStorage.setItem(`uv_user_programme_${userId}`, JSON.stringify(payload));
     }
+    localStorage.setItem(LAST_PROG_KEY, prog.id);
     const cleanEmail = String(email || "").trim().toLowerCase();
     if (cleanEmail) {
       const map = readProgByEmailMap();
@@ -90,10 +81,16 @@ function updateProgrammeHint(prog) {
   const hint = $("#programmeHint");
   if (!hint) return;
   if (prog) {
-    hint.textContent = `${prog.college} · Unlocks past questions aligned with ${prog.name}.`;
+    hint.textContent =
+      mode === "in"
+        ? `Remembered: ${prog.name} (${prog.college}). Keep this or pick another course.`
+        : `${prog.college} · Unlocks past questions aligned with ${prog.name}.`;
     hint.classList.add("is-selected");
   } else {
-    hint.textContent = "Determines which KNUST past examination papers unlock in your vault.";
+    hint.textContent =
+      mode === "in"
+        ? "Automatically uses the KNUST course you chose when registering, or pick one here to switch."
+        : "Determines which KNUST past examination papers unlock in your vault.";
     hint.classList.remove("is-selected");
   }
 }
@@ -150,12 +147,22 @@ function restoreSavedProgrammeForEmail(email) {
   const cleanEmail = String(email || "").trim().toLowerCase();
   const sel = $("#programme");
   const api = window.uvKnustCourses;
-  if (!sel || !api || !cleanEmail) return;
-  const savedId = readProgByEmailMap()[cleanEmail];
+  if (!sel || !api) return;
+  const map = readProgByEmailMap();
+  let savedId = cleanEmail ? map[cleanEmail] : "";
+  if (!savedId) {
+    try {
+      savedId = localStorage.getItem(LAST_PROG_KEY) || "";
+    } catch {}
+  }
   if (!savedId) return;
   const prog = api.findProgramme(savedId);
   if (!prog) return;
-  renderProgrammeOptions($("#programmeSearch")?.value || "", prog.id);
+  if (sel.value !== prog.id) {
+    renderProgrammeOptions($("#programmeSearch")?.value || "", prog.id);
+  } else {
+    updateProgrammeHint(prog);
+  }
 }
 
 function restoreSavedEmail() {
@@ -163,8 +170,8 @@ function restoreSavedEmail() {
     const saved = localStorage.getItem(SAVED_EMAIL_KEY) || "";
     if (saved && $("#em") && !$("#em").value) {
       $("#em").value = saved;
-      restoreSavedProgrammeForEmail(saved);
     }
+    restoreSavedProgrammeForEmail($("#em")?.value || saved);
     if (saved && $("#recEmail") && !$("#recEmail").value) {
       $("#recEmail").value = saved;
     }
@@ -241,8 +248,16 @@ function applyMode(nextMode) {
   if ($("#tgl")) {
     $("#tgl").textContent = isUp ? "Already have an account? Sign in" : "New here? Create an account";
   }
+  if ($("#programme")) {
+    $("#programme").required = isUp;
+  }
+  if ($("#programmeLabel")) {
+    $("#programmeLabel").textContent = isUp
+      ? "KNUST course offering"
+      : "KNUST course offering (optional on sign in)";
+  }
+  updateProgrammeHint(window.uvKnustCourses?.findProgramme($("#programme")?.value || ""));
   if ($("#forgotPw")) $("#forgotPw").hidden = isUp;
-  showResendButton("");
   setMsg("");
 }
 
@@ -334,31 +349,6 @@ function bindPwToggle(btnSel, inputSel) {
 }
 bindPwToggle("#togglePw", "#pw");
 bindPwToggle("#toggleNewPw", "#newPw");
-
-if ($("#resendVerifyBtn")) {
-  $("#resendVerifyBtn").onclick = async () => {
-    const email = lastPendingEmail || $("#em").value.trim().toLowerCase();
-    if (!email) return;
-    $("#resendVerifyBtn").disabled = true;
-    setMsg("Resending verification email...", true);
-    try {
-      const { error } = await sb.auth.resend({
-        type: "signup",
-        email,
-        options: { emailRedirectTo: getRedirectBaseUrl() },
-      });
-      if (error) {
-        setMsg(error.message);
-      } else {
-        setMsg(`Verification link re-sent to ${email}. Check Inbox and Spam.`, true);
-      }
-    } catch (err) {
-      setMsg(err?.message || "Could not resend verification email.");
-    } finally {
-      $("#resendVerifyBtn").disabled = false;
-    }
-  };
-}
 
 if ($("#forgotPw")) {
   $("#forgotPw").onclick = async () => {
@@ -471,29 +461,32 @@ if ($("#programme")) {
 }
 
 if ($("#em")) {
-  $("#em").addEventListener("change", (e) => {
-    if (!$("#programme")?.value) {
-      restoreSavedProgrammeForEmail(e.target.value);
+  const syncEmailProgramme = (e) => {
+    const val = e.target.value.trim().toLowerCase();
+    const map = readProgByEmailMap();
+    if (val && map[val]) {
+      restoreSavedProgrammeForEmail(val);
+    } else if (!$("#programme")?.value) {
+      restoreSavedProgrammeForEmail(val);
     }
-  });
+  };
+  $("#em").addEventListener("input", syncEmailProgramme);
+  $("#em").addEventListener("change", syncEmailProgramme);
 }
 
 if (urlAuthError) {
   setMsg(
     decodeURIComponent(urlAuthError.replace(/\+/g, " ")) +
-      " Request a new verification or password reset email below."
+      " Request a new password reset email below."
   );
 } else if (isRecoveryMode) {
   showRecoveryForm();
-} else if (authFlowType === "signup" || authFlowType === "email") {
-  setMsg("Email verified! Opening your vault...", true);
 }
 
 $("#f").onsubmit = async (e) => {
   e.preventDefault();
   if (isSubmitting) return;
   setMsg("");
-  showResendButton("");
 
   if (!isValidSupabaseUrl) {
     setMsg("Supabase is not configured. Check your environment settings.");
@@ -521,7 +514,7 @@ $("#f").onsubmit = async (e) => {
     $("#name").focus();
     return;
   }
-  if (!selectedProg) {
+  if (mode === "up" && !selectedProg) {
     setMsg("Please select your KNUST course offering from the 150-programme list.");
     $("#programme")?.focus();
     return;
@@ -535,34 +528,43 @@ $("#f").onsubmit = async (e) => {
   }
 
   try {
-    const progMeta = {
-      programme: selectedProg.name,
-      programme_id: selectedProg.id,
-      programme_college: selectedProg.college,
-    };
+    const progMeta = selectedProg
+      ? {
+          programme: selectedProg.name,
+          programme_id: selectedProg.id,
+          programme_college: selectedProg.college,
+        }
+      : null;
 
-    const r =
+    let r =
       mode === "up"
         ? await sb.auth.signUp({
             email,
             password,
             options: {
               data: { full_name: fullName, ...progMeta },
-              emailRedirectTo: getRedirectBaseUrl(),
             },
           })
         : await sb.auth.signInWithPassword({ email, password });
 
+    if (!r.error && mode === "up" && !r.data?.session) {
+      try {
+        const autoLogin = await sb.auth.signInWithPassword({ email, password });
+        if (!autoLogin.error && autoLogin.data?.session) {
+          r = autoLogin;
+        }
+      } catch {}
+    }
+
     if (r.error) {
-      if (mode === "in" && /email not confirmed/i.test(r.error.message)) {
-        setMsg(
-          "Your email is not verified yet. Check your inbox for the verification link or tap Resend below."
-        );
-        showResendButton(email);
-      } else if (mode === "in" && /invalid login credentials/i.test(r.error.message)) {
+      if (mode === "in" && /invalid login credentials/i.test(r.error.message)) {
         setMsg("Incorrect email or password. Check your password or create a new account.");
       } else if (mode === "up" && /already registered/i.test(r.error.message)) {
         setMsg("That email already has an account. Switch to Sign in above.");
+      } else if (/email not confirmed/i.test(r.error.message)) {
+        setMsg(
+          "Instant sign-in is blocked by your Supabase project's Confirm email setting. Disable 'Confirm email' in Supabase Authentication > Providers > Email."
+        );
       } else {
         setMsg(r.error.message);
       }
@@ -570,12 +572,50 @@ $("#f").onsubmit = async (e) => {
     }
 
     let authedUser = r.data?.session?.user || r.data?.user || null;
-    saveUserProgrammeLocally(authedUser?.id, email, selectedProg);
+    const apiCourses = window.uvKnustCourses;
+    const registeredProg =
+      apiCourses?.findProgramme(
+        authedUser?.user_metadata?.programme_id || authedUser?.user_metadata?.programme
+      ) || null;
 
-    if (r.data?.session && mode === "in" && typeof sb?.auth?.updateUser === "function") {
+    let effectiveProg = selectedProg || registeredProg;
+    if (!effectiveProg && authedUser?.id && typeof sb?.from === "function") {
+      try {
+        const { data: profRow } = await sb
+          .from("profiles")
+          .select("programme_id,programme")
+          .eq("id", authedUser.id)
+          .maybeSingle();
+        effectiveProg =
+          apiCourses?.findProgramme(profRow?.programme_id || profRow?.programme) || null;
+      } catch {}
+    }
+
+    if (effectiveProg) {
+      saveUserProgrammeLocally(authedUser?.id, email, effectiveProg);
+    }
+
+    const shouldSyncMeta =
+      r.data?.session &&
+      selectedProg &&
+      (!registeredProg || registeredProg.id !== selectedProg.id);
+
+    if (shouldSyncMeta && typeof sb?.auth?.updateUser === "function") {
       try {
         const upd = await sb.auth.updateUser({ data: progMeta });
         if (upd?.data?.user) authedUser = upd.data.user;
+      } catch {}
+    }
+
+    if (r.data?.session && authedUser?.id && effectiveProg && typeof sb?.from === "function") {
+      try {
+        await sb
+          .from("profiles")
+          .update({
+            programme_id: effectiveProg.id,
+            programme: effectiveProg.name,
+          })
+          .eq("id", authedUser.id);
       } catch {}
     }
 
@@ -586,23 +626,19 @@ $("#f").onsubmit = async (e) => {
     );
 
     if (r.data?.session) {
-      const signedInName = saveWelcomeState(authedUser, mode, selectedProg.name);
+      const signedInName = saveWelcomeState(authedUser, mode, effectiveProg?.name || "");
+      const progNote = effectiveProg ? `${effectiveProg.name} archive` : "your vault";
       setMsg(
         mode === "up"
-          ? `Welcome to UniVault${signedInName ? ", " + signedInName : ""}! Opening ${selectedProg.name}...`
-          : `Welcome back${signedInName ? ", " + signedInName : ""}! Loading ${selectedProg.name} archive...`,
+          ? `Welcome to UniVault${signedInName ? ", " + signedInName : ""}! Opening ${progNote}...`
+          : `Welcome back${signedInName ? ", " + signedInName : ""}! Loading ${progNote}...`,
         true
       );
       await redirectAfterAuth(authedUser, mode);
     } else {
-      const rememberNote = $("#rememberCreds")?.checked
-        ? " Your email is saved for next time (accept your browser's Save Password prompt if shown)."
-        : "";
       setMsg(
-        `Verification email sent to ${email}! Open the link in your email to verify and sign in.${rememberNote}`,
-        true
+        "Account created, but no active session was returned. In Supabase, turn off 'Confirm email' under Authentication > Providers > Email to sign in immediately."
       );
-      showResendButton(email);
     }
   } catch (err) {
     setMsg(err?.message || "Could not reach the sign-in service. Please try again.");
@@ -616,7 +652,7 @@ $("#f").onsubmit = async (e) => {
 };
 
 function resolveAuthFlow() {
-  return authFlowType === "signup" || authFlowType === "email" ? "up" : null;
+  return null;
 }
 
 if (typeof sb?.auth?.onAuthStateChange === "function") {
@@ -677,22 +713,26 @@ if (typeof sb?.auth?.onAuthStateChange === "function") {
     }
   }
 
-  const { data } = await sb.auth.getSession();
+  let sessionData = null;
+  try {
+    const res = await sb.auth.getSession();
+    sessionData = res?.data || null;
+  } catch {}
   if (isRecoveryMode) {
     showRecoveryForm(
-      data?.session ? "Reset link verified! Enter your new password below." : "",
-      data?.session?.user?.email || ""
+      sessionData?.session ? "Reset link verified! Enter your new password below." : "",
+      sessionData?.session?.user?.email || ""
     );
-    if (!data?.session && !$("#recMsg")?.textContent) {
+    if (!sessionData?.session && !$("#recMsg")?.textContent) {
       setRecMsg(
         "Reset session not found or expired. Open the reset link in the same browser you requested it from, or request a new one."
       );
     }
     return;
   }
-  if (data?.session && !isSubmitting) {
+  if (sessionData?.session && !isSubmitting) {
     const flow = resolveAuthFlow();
-    if (flow) saveWelcomeState(data.session.user, flow);
-    redirectAfterAuth(data.session.user, flow);
+    if (flow) saveWelcomeState(sessionData.session.user, flow);
+    redirectAfterAuth(sessionData.session.user, flow);
   }
 })();

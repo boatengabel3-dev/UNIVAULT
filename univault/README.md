@@ -1,5 +1,5 @@
 UniVault setup
-1. Supabase: run schema.sql. Authentication > Providers: enable Email.
+1. Supabase: run schema.sql. Authentication > Providers > Email: enable Email and turn off "Confirm email".
 2. Fill keys in config.js (Supabase URL, anon key, Paystack public key).
 3. Deploy: supabase functions deploy ai-chat paystack-verify admin-payout public-stats
 4. Secrets: supabase secrets set GEMINI_API_KEY=... PAYSTACK_SECRET_KEY=sk_...

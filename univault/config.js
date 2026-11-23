@@ -54,10 +54,142 @@ const fallbackSb = {
   },
 };
 
+function isInvalidRefreshTokenError(err) {
+  if (!err) return false;
+  const code = String(err?.code || "").toLowerCase();
+  const msg = String(err?.message || err?.error_description || err || "");
+  return (
+    code === "refresh_token_not_found" ||
+    /invalid refresh token|refresh token not found|refresh_token_not_found/i.test(msg)
+  );
+}
+
+let isClearingStaleAuth = false;
+function clearStaleSupabaseAuthStorage(client = null) {
+  if (isClearingStaleAuth) return;
+  isClearingStaleAuth = true;
+  try {
+    const cleanStore = (store) => {
+      if (!store) return;
+      const keysToRemove = [];
+      for (let i = 0; i < store.length; i++) {
+        const key = store.key(i);
+        if (key && /^sb-.*-auth-token/.test(key)) {
+          keysToRemove.push(key);
+        }
+      }
+      keysToRemove.forEach((k) => {
+        try {
+          store.removeItem(k);
+        } catch {}
+      });
+    };
+    try {
+      cleanStore(window.localStorage);
+    } catch {}
+    try {
+      cleanStore(window.sessionStorage);
+    } catch {}
+
+    const target = client || (typeof sb !== "undefined" ? sb : null);
+    const signOutFn = target?.auth?._uvOrigSignOut || target?.auth?.signOut;
+    if (typeof signOutFn === "function") {
+      Promise.resolve(signOutFn({ scope: "local" })).catch(() => {});
+    }
+  } finally {
+    setTimeout(() => {
+      isClearingStaleAuth = false;
+    }, 250);
+  }
+}
+
+function sanitizeStoredSupabaseSession() {
+  try {
+    const store = window.localStorage;
+    if (!store) return;
+    for (let i = store.length - 1; i >= 0; i--) {
+      const key = store.key(i);
+      if (!key || !/^sb-.*-auth-token$/.test(key)) continue;
+      const raw = store.getItem(key);
+      if (!raw) continue;
+      try {
+        const parsed = JSON.parse(raw);
+        const sessionObj = parsed?.currentSession || parsed?.session || parsed;
+        const hasTokens =
+          sessionObj &&
+          typeof sessionObj === "object" &&
+          typeof sessionObj.access_token === "string" &&
+          sessionObj.access_token.length > 0 &&
+          typeof sessionObj.refresh_token === "string" &&
+          sessionObj.refresh_token.length > 0;
+        if (!hasTokens) {
+          store.removeItem(key);
+        }
+      } catch {
+        store.removeItem(key);
+      }
+    }
+  } catch {}
+}
+
+window.addEventListener("unhandledrejection", (event) => {
+  if (isInvalidRefreshTokenError(event?.reason)) {
+    event.preventDefault();
+    clearStaleSupabaseAuthStorage();
+  }
+});
+
 let sb = fallbackSb;
 if (isValidSupabaseUrl && typeof supabase !== "undefined") {
   try {
+    sanitizeStoredSupabaseSession();
     sb = supabase.createClient(C.SUPABASE_URL, C.SUPABASE_ANON_KEY);
+    if (sb?.auth) {
+      const origGetSession = sb.auth.getSession.bind(sb.auth);
+      const origRefreshSession =
+        typeof sb.auth.refreshSession === "function"
+          ? sb.auth.refreshSession.bind(sb.auth)
+          : null;
+      const origSignOut =
+        typeof sb.auth.signOut === "function" ? sb.auth.signOut.bind(sb.auth) : null;
+      sb.auth._uvOrigSignOut = origSignOut;
+
+      sb.auth.getSession = async (...args) => {
+        try {
+          const res = await origGetSession(...args);
+          if (res?.error && isInvalidRefreshTokenError(res.error)) {
+            clearStaleSupabaseAuthStorage(sb);
+            return { data: { session: null }, error: null };
+          }
+          return res;
+        } catch (err) {
+          if (isInvalidRefreshTokenError(err)) {
+            clearStaleSupabaseAuthStorage(sb);
+            return { data: { session: null }, error: null };
+          }
+          throw err;
+        }
+      };
+
+      if (origRefreshSession) {
+        sb.auth.refreshSession = async (...args) => {
+          try {
+            const res = await origRefreshSession(...args);
+            if (res?.error && isInvalidRefreshTokenError(res.error)) {
+              clearStaleSupabaseAuthStorage(sb);
+              return { data: { session: null, user: null }, error: null };
+            }
+            return res;
+          } catch (err) {
+            if (isInvalidRefreshTokenError(err)) {
+              clearStaleSupabaseAuthStorage(sb);
+              return { data: { session: null, user: null }, error: null };
+            }
+            throw err;
+          }
+        };
+      }
+    }
   } catch (err) {
     console.warn("Failed to initialize Supabase client:", err);
   }
@@ -446,6 +578,12 @@ const uvTheme = (() => {
       delete root.dataset.theme;
     }
     root.style.colorScheme = next;
+    const themeMeta = document.querySelector('meta[name="theme-color"]');
+    if (themeMeta) themeMeta.setAttribute("content", next === "light" ? "#f6f8fc" : "#09111e");
+    const appleStatusMeta = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+    if (appleStatusMeta) {
+      appleStatusMeta.setAttribute("content", next === "light" ? "default" : "black-translucent");
+    }
     if (persist) {
       try {
         localStorage.setItem(KEY, next);

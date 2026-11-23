@@ -237,6 +237,7 @@ export interface AiChatInput {
   userId: string;
   mode?: string;
   course?: string;
+  programme?: string;
   messages?: unknown;
   count?: number;
   instructions?: string;
@@ -299,6 +300,7 @@ async function fetchCourseBank(opts: {
 export async function prepareAiChat(opts: AiChatInput): Promise<PreparedAiChat> {
   const mode = String(opts.mode || 'chat');
   const course = String(opts.course || '').trim();
+  const programme = String(opts.programme || '').trim();
   const count = Math.min(20, Math.max(1, Number(opts.count) || 5));
   const instructions = String(opts.instructions || '').trim();
   const cleanAttachment = String(opts.attachmentContext || '').trim().slice(0, 24000);
@@ -332,19 +334,32 @@ export async function prepareAiChat(opts: AiChatInput): Promise<PreparedAiChat> 
 
   const ai = createGeminiClient(opts.apiKey);
   const attachedBlock = cleanAttachment
-    ? `\n\nUser-uploaded study material / transcript:\n${cleanAttachment}\n`
+    ? `\n\nStudent-uploaded study material / transcript:\n${cleanAttachment}\n`
     : '';
 
-  let systemInstruction = `You are a KNUST exam tutor.${course ? ` Selected course: ${course}.` : ''}${bank ? `\nPast questions on file:\n\n${bank}` : ''}${attachedBlock}\n`;
+  const contextBits = [
+    programme ? `Student programme: ${programme}.` : '',
+    course ? `Selected course: ${course}.` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  let systemInstruction = `You are a sharp, approachable KNUST Teaching Assistant and senior coursemate helping a student prepare for exams.${contextBits ? ` ${contextBits}` : ''}${bank ? `\nPast questions on file:\n\n${bank}` : ''}${attachedBlock}\n`;
+
+  const voiceRules =
+    'Write like a real person explaining the work at a study table—clear, direct, and grounded. ' +
+    'Start straight with the explanation or answer; never open with filler like "Certainly!", "Sure!", "Of course!", "Great question!", or "As an AI". ' +
+    'Avoid robotic sign-offs ("In conclusion,", "To summarize,", "Hope this helps!", "Feel free to ask!") and never use emojis. ' +
+    'Do not force every reply into rigid numbered templates; let the question decide the flow—short prose for quick concepts, clean step-by-step working for calculations or derivations, and concise bullets only when listing distinct points.';
 
   if (mode === 'quiz') {
     systemInstruction += `Write ${count} multiple-choice questions in the style of these materials. Extra instructions: ${instructions || 'none'}.`;
   } else if (mode === 'explain') {
     systemInstruction +=
-      'Provide a thorough, detailed academic explanation. Structure your answer clearly with: (1) Core Concept & Definitions, (2) Step-by-Step Solution / Working with clear formulas and units, (3) Why each step works, and (4) Examiner Tips & Common Mistakes to avoid.';
+      `${voiceRules} Walk through the question or material cleanly: state the core idea briefly, show the step-by-step working with formulas and units where relevant, explain why key steps matter as you go, and drop a quick note only if there is a genuine mark-losing mistake KNUST examiners watch for.`;
   } else {
     systemInstruction +=
-      'Solve questions step by step with clear working, and provide deep explanations whenever asked about a specific question or uploaded document/recording. When asked to predict, analyse repeated topics, question formats, mark weighting and lecturer habits across years, and say which topics are most likely; label predictions as estimates, never guarantees.';
+      `${voiceRules} Solve problems step by step with clear working, and explain specific questions or uploaded notes thoroughly. When asked to predict exam questions, weigh recurring topics, mark weighting, question styles, and lecturer patterns across past years, and clearly note that predictions are estimates rather than guarantees.`;
   }
 
   return {
@@ -401,14 +416,15 @@ export async function runAiChat(opts: AiChatInput): Promise<{
 
   if (prep.mode === 'explain') {
     const prompt = prep.targetQuestion
-      ? `Give a detailed explanation for this specific question or topic:\n\n${prep.targetQuestion}`
-      : 'Provide a detailed, step-by-step explanation covering the key questions and concepts in the provided material.';
+      ? `Walk me through this question or topic clearly:\n\n${prep.targetQuestion}`
+      : 'Break down the key questions and concepts in the provided material step by step.';
     const response = await callGeminiWithRetry((model) =>
       prep.ai.models.generateContent({
         model,
         contents: prompt,
         config: {
           systemInstruction: prep.systemInstruction,
+          temperature: 0.45,
           thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
         },
       })
@@ -426,6 +442,7 @@ export async function runAiChat(opts: AiChatInput): Promise<{
       contents: prep.contents,
       config: {
         systemInstruction: prep.systemInstruction,
+        temperature: 0.45,
         thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       },
     })
@@ -457,8 +474,8 @@ export async function* streamAiChat(
   const contents =
     prep.mode === 'explain'
       ? prep.targetQuestion
-        ? `Give a detailed explanation for this specific question or topic:\n\n${prep.targetQuestion}`
-        : 'Provide a detailed, step-by-step explanation covering the key questions and concepts in the provided material.'
+        ? `Walk me through this question or topic clearly:\n\n${prep.targetQuestion}`
+        : 'Break down the key questions and concepts in the provided material step by step.'
       : prep.contents;
 
   let fullText = '';
@@ -478,6 +495,7 @@ export async function* streamAiChat(
           contents,
           config: {
             systemInstruction: prep.systemInstruction,
+            temperature: 0.45,
             thinkingConfig: {
               thinkingLevel: ThinkingLevel.LOW,
             },

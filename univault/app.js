@@ -157,6 +157,19 @@ const initialParams = new URLSearchParams(location.search);
     user = session.user;
     userProgramme = resolveUserProgramme();
     await Promise.allSettled([refresh(), load()]);
+    if (!userProgramme) {
+      userProgramme = resolveUserProgramme();
+    }
+    if (userProgramme) {
+      saveUserProgramme(userProgramme);
+      if (P?.id && !P.programme_id && typeof sb?.from === "function") {
+        sb.from("profiles")
+          .update({ programme_id: userProgramme.id, programme: userProgramme.name })
+          .eq("id", user.id)
+          .then(() => {})
+          .catch(() => {});
+      }
+    }
     updateProgrammeUi();
 
     if (!isAdminUser && !userProgramme && window.uvKnustCourses) {
@@ -177,6 +190,12 @@ const initialParams = new URLSearchParams(location.search);
         showView: (viewId) => show(viewId, true),
       });
     }
+  } catch (err) {
+    if (typeof isInvalidRefreshTokenError === "function" && isInvalidRefreshTokenError(err)) {
+      clearStaleSupabaseAuthStorage?.(sb);
+    }
+    const nextDest = location.pathname + location.search;
+    location.replace("signup.html?next=" + encodeURIComponent(nextDest));
   } finally {
     window.dispatchEvent(new CustomEvent("uv:rendered"));
   }
@@ -384,6 +403,9 @@ function resolveUserProgramme() {
   const fromMeta = api.findProgramme(meta.programme_id || meta.programme);
   if (fromMeta) return fromMeta;
 
+  const fromProfile = api.findProgramme(P?.programme_id || P?.programme);
+  if (fromProfile) return fromProfile;
+
   try {
     if (user?.id) {
       const raw = localStorage.getItem(`uv_user_programme_${user.id}`);
@@ -402,6 +424,11 @@ function resolveUserProgramme() {
         if (found) return found;
       }
     }
+    const lastProgId = localStorage.getItem("uv_last_programme_id");
+    if (lastProgId) {
+      const found = api.findProgramme(lastProgId);
+      if (found) return found;
+    }
   } catch {}
   return null;
 }
@@ -416,6 +443,7 @@ function saveUserProgramme(prog) {
         JSON.stringify({ id: prog.id, name: prog.name, college: prog.college, updatedAt: Date.now() })
       );
     }
+    localStorage.setItem("uv_last_programme_id", prog.id);
     const cleanEmail = String(user?.email || "").trim().toLowerCase();
     if (cleanEmail) {
       const raw = localStorage.getItem("uv_prog_by_email");
@@ -593,6 +621,13 @@ if ($("#programmeDialogForm")) {
               programme_college: picked.college,
             },
           })
+          .catch(() => {});
+      }
+      if (user?.id && typeof sb?.from === "function") {
+        await sb
+          .from("profiles")
+          .update({ programme_id: picked.id, programme: picked.name })
+          .eq("id", user.id)
           .catch(() => {});
       }
       updateProgrammeUi();
@@ -1009,10 +1044,11 @@ async function getValidAccessToken(forceRefresh = false) {
       if (data?.session?.access_token) return data.session.access_token;
     } catch {}
   }
-  const {
-    data: { session },
-  } = await sb.auth.getSession();
-  if (session?.access_token) return session.access_token;
+  try {
+    const res = await sb.auth.getSession();
+    const session = res?.data?.session;
+    if (session?.access_token) return session.access_token;
+  } catch {}
   if (sb?.auth?.refreshSession) {
     try {
       const { data } = await sb.auth.refreshSession();
@@ -1279,11 +1315,132 @@ async function copyTextToClipboard(text) {
   }
 }
 
-function setBubbleText(bubbleEl, text) {
+function formatInlineAiHtml(raw) {
+  const inlineCode = [];
+  let s = String(raw || "").replace(/`([^`\n]+)`/g, (_, code) => {
+    const idx = inlineCode.length;
+    inlineCode.push(`<code>${esc(code)}</code>`);
+    return `@@UVIC_${idx}@@`;
+  });
+  s = esc(s);
+  s = s.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/__(.+?)__/g, "<strong>$1</strong>");
+  s = s.replace(
+    /(^|[\s(>])\*([^\s*](?:[^*\n]*?[^\s*])?)\*(?=[\s.,;:!?)]|$)/g,
+    "$1<em>$2</em>"
+  );
+  s = s.replace(/@@UVIC_(\d+)@@/g, (_, i) => inlineCode[Number(i)] || "");
+  return s;
+}
+
+function formatAiMessageHtml(text) {
+  const codeBlocks = [];
+  let src = String(text || "").replace(/\r\n/g, "\n");
+  src = src.replace(/```[^\n]*\n([\s\S]*?)```/g, (_, code) => {
+    const idx = codeBlocks.length;
+    codeBlocks.push(`<pre><code>${esc(code.replace(/\n$/, ""))}</code></pre>`);
+    return `\n@@UVCB_${idx}@@\n`;
+  });
+
+  const lines = src.split("\n");
+  const out = [];
+  let pLines = [];
+  let listType = null;
+  let listItems = [];
+
+  const flushPara = () => {
+    if (!pLines.length) return;
+    out.push(`<p>${pLines.map(formatInlineAiHtml).join("<br>")}</p>`);
+    pLines = [];
+  };
+
+  const flushList = () => {
+    if (!listItems.length || !listType) return;
+    const tag = listType === "ol" ? "ol" : "ul";
+    out.push(`<${tag}>${listItems.map((it) => `<li>${formatInlineAiHtml(it)}</li>`).join("")}</${tag}>`);
+    listItems = [];
+    listType = null;
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const cbMatch = /^@@UVCB_(\d+)@@$/.exec(trimmed);
+    if (cbMatch) {
+      flushPara();
+      flushList();
+      out.push(codeBlocks[Number(cbMatch[1])] || "");
+      continue;
+    }
+    if (!trimmed) {
+      flushPara();
+      flushList();
+      continue;
+    }
+    if (/^(?:-{3,}|\*{3,})$/.test(trimmed)) {
+      flushPara();
+      flushList();
+      out.push("<hr>");
+      continue;
+    }
+    const hMatch = /^(#{1,4})\s+(.+)$/.exec(trimmed);
+    if (hMatch) {
+      flushPara();
+      flushList();
+      const tag = hMatch[1].length <= 2 ? "h3" : "h4";
+      out.push(`<${tag}>${formatInlineAiHtml(hMatch[2])}</${tag}>`);
+      continue;
+    }
+    const ulMatch = /^\s*[-*•]\s+(.+)$/.exec(line);
+    if (ulMatch) {
+      flushPara();
+      if (listType && listType !== "ul") flushList();
+      listType = "ul";
+      listItems.push(ulMatch[1]);
+      continue;
+    }
+    const olMatch = /^\s*\d+[.)]\s+(.+)$/.exec(line);
+    if (olMatch) {
+      flushPara();
+      if (listType && listType !== "ol") flushList();
+      listType = "ol";
+      listItems.push(olMatch[1]);
+      continue;
+    }
+    flushList();
+    pLines.push(line);
+  }
+  flushPara();
+  flushList();
+
+  return out.join("") || `<p>${esc(text)}</p>`;
+}
+
+function stripAiMarkdownForCopy(text) {
+  return String(text || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/\*\*(.+?)\*\*/g, "$1")
+    .replace(/__(.+?)__/g, "$1")
+    .replace(/`([^`\n]+)`/g, "$1")
+    .replace(/^\s*[-*]\s+/gm, "• ")
+    .trim();
+}
+
+function setBubbleText(bubbleEl, text, opts = {}) {
   if (!bubbleEl) return;
   const val = String(text || "");
+  bubbleEl._rawText = val;
   if (bubbleEl._body) {
-    bubbleEl._body.textContent = val;
+    if (
+      val &&
+      !opts.raw &&
+      bubbleEl.classList.contains("a") &&
+      !bubbleEl.classList.contains("is-err")
+    ) {
+      bubbleEl._body.innerHTML = formatAiMessageHtml(val);
+    } else {
+      bubbleEl._body.textContent = val;
+    }
     bubbleEl._body.hidden = !val;
   } else {
     bubbleEl.textContent = val;
@@ -1301,6 +1458,7 @@ function setBubbleTyping(bubbleEl, typing, label = "Thinking...") {
     }
   }
   if (bubbleEl._body && isTyping) {
+    bubbleEl._rawText = "";
     bubbleEl._body.textContent = "";
     bubbleEl._body.hidden = true;
   }
@@ -1308,7 +1466,7 @@ function setBubbleTyping(bubbleEl, typing, label = "Thinking...") {
 
 function setBubbleCopyable(bubbleEl, copyable) {
   if (!bubbleEl?._copyBtn) return;
-  const hasText = Boolean(bubbleEl._body?.textContent?.trim());
+  const hasText = Boolean(bubbleEl._rawText?.trim() || bubbleEl._body?.textContent?.trim());
   bubbleEl._copyBtn.hidden = !(copyable && hasText);
 }
 
@@ -1333,7 +1491,9 @@ function bub(t, c, opts = {}) {
     copyBtn.innerHTML = `${COPY_ICON_SVG}<span>Copy</span>`;
     let resetTimer = null;
     copyBtn.onclick = async () => {
-      const content = d._body?.textContent?.trim() || "";
+      const content = d._rawText
+        ? stripAiMarkdownForCopy(d._rawText)
+        : d._body?.textContent?.trim() || "";
       if (!content) return;
       const ok = await copyTextToClipboard(content);
       if (resetTimer) clearTimeout(resetTimer);
@@ -1444,10 +1604,10 @@ function cleanAiErrorMessage(err) {
 function showAiErrorInBubble(bubbleEl, err, retryFn = null) {
   const msg = cleanAiErrorMessage(err);
   const isQuotaErr = err?.status === 402 || /premium|trial limit/i.test(msg);
-  setBubbleTyping(bubbleEl, false);
-  setBubbleText(bubbleEl, msg);
-  setBubbleCopyable(bubbleEl, false);
   bubbleEl.classList.add("is-err");
+  setBubbleTyping(bubbleEl, false);
+  setBubbleText(bubbleEl, msg, { raw: true });
+  setBubbleCopyable(bubbleEl, false);
   if (bubbleEl._actions) {
     bubbleEl._actions.innerHTML = "";
     bubbleEl._actions.hidden = true;
@@ -1498,6 +1658,7 @@ async function ask(text) {
       {
         mode: "chat",
         course: $("#chatCourse")?.value || "",
+        programme: userProgramme?.name || "",
         messages: hist,
         attachmentContext: buildAttachmentContext(),
       },
@@ -1547,6 +1708,7 @@ async function requestDetailedExplanation(targetQuestion, inlineContext = "") {
       {
         mode: "explain",
         course: $("#chatCourse")?.value || "",
+        programme: userProgramme?.name || "",
         targetQuestion,
         attachmentContext: context,
       },
