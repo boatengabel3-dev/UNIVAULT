@@ -221,7 +221,7 @@ header {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--b);
-  z-index: 15;
+  z-index: 60;
 }
 
 header.app-header {
@@ -369,16 +369,24 @@ nav {
 .nav-drawer {
   position: absolute;
   top: calc(100% + 8px);
-  right: 5vw;
-  width: min(290px, 90vw);
+  right: max(5vw, env(safe-area-inset-right, 0px));
+  width: min(310px, calc(100vw - 24px));
+  max-height: calc(100dvh - 84px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--drawer-bg);
   border: 1px solid var(--b);
   border-radius: 14px;
   padding: 12px;
   backdrop-filter: blur(22px);
+  -webkit-backdrop-filter: blur(22px);
   box-shadow: var(--shadow-drawer);
-  z-index: 20;
+  z-index: 70;
   animation: uvPanelDrop 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.nav-drawer[hidden] {
+  display: none;
 }
 
 @keyframes uvPanelDrop {
@@ -388,14 +396,27 @@ nav {
 
 .drawer-acct {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
   padding: 6px 10px 10px;
   border-bottom: 1px solid var(--b-soft);
   margin-bottom: 8px;
   font-size: 0.85rem;
   color: var(--mut);
+}
+
+.drawer-acct-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+}
+
+.drawer-acct-row .acct-status {
+  text-align: right;
+  flex-shrink: 0;
 }
 
 .nav-drawer nav {
@@ -405,6 +426,7 @@ nav {
 
 .nav-drawer nav button {
   width: 100%;
+  min-height: 42px;
   text-align: left;
   padding: 10px 12px;
   border-radius: 9px;
@@ -412,6 +434,7 @@ nav {
   border: 1px solid transparent;
   font-size: 0.95rem;
   color: var(--ink);
+  cursor: pointer;
 }
 
 .nav-drawer nav button:hover {
@@ -434,7 +457,8 @@ nav {
 
 .drawer-footer {
   display: grid;
-  gap: 6px;
+  grid-template-columns: 1fr;
+  gap: 8px;
 }
 
 .drawer-footer .admin-btn,
@@ -962,7 +986,7 @@ dialog {
   background: var(--msg-user-bg);
   color: var(--msg-user-ink);
   border-color: rgba(59, 130, 246, 0.30);
-  animation: uvMsgFlyRight 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: uvMsgFlyRight 1s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .m.a {
@@ -970,7 +994,7 @@ dialog {
   background: var(--g);
   color: var(--ink);
   border-color: var(--b);
-  animation: uvMsgFlyLeft 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: uvMsgFlyLeft 1s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 :root[data-theme="light"] .m.a {
@@ -1530,7 +1554,7 @@ pre {
 }
 
 .uv-view-enter {
-  animation: uvViewEnter 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: uvViewEnter 1s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 /* Directional fly-in reveal for boxes, cards, stats, and panels (uses standalone translate/scale so 3D tilt transforms stay intact) */
@@ -1540,10 +1564,10 @@ pre {
   scale: var(--fly-scale, 0.93);
   filter: blur(3px);
   transition:
-    opacity 0.56s cubic-bezier(0.22, 1, 0.36, 1) var(--uv-delay, 0ms),
-    translate 0.68s cubic-bezier(0.16, 1, 0.3, 1) var(--uv-delay, 0ms),
-    scale 0.68s cubic-bezier(0.16, 1, 0.3, 1) var(--uv-delay, 0ms),
-    filter 0.50s ease var(--uv-delay, 0ms),
+    opacity 1s cubic-bezier(0.22, 1, 0.36, 1) var(--uv-delay, 0ms),
+    translate 1s cubic-bezier(0.16, 1, 0.3, 1) var(--uv-delay, 0ms),
+    scale 1s cubic-bezier(0.16, 1, 0.3, 1) var(--uv-delay, 0ms),
+    filter 1s ease var(--uv-delay, 0ms),
     transform 0.24s cubic-bezier(0.16, 1, 0.3, 1) 0ms,
     border-color 0.22s ease 0ms,
     background-color 0.22s ease 0ms,
@@ -1740,102 +1764,6 @@ pre {
   dialog {
     max-width: min(740px, 90vw);
     padding: 30px;
-  }
-}
-
-/* Friendly Single-Row Desktop Workspace Bar for app.html (keeps 3-bar menu on <= 1059px) */
-@media (min-width: 1060px) {
-  header.app-header {
-    padding: 14px 4vw;
-    gap: 16px;
-  }
-
-  .hdr-right {
-    order: 4;
-    display: inline-flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .hdr-right .active-view-label,
-  .hdr-right .menu-btn {
-    display: none;
-  }
-
-  .nav-drawer,
-  .nav-drawer[hidden] {
-    position: static;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 16px;
-    width: auto;
-    flex: 1;
-    min-width: 0;
-    background: transparent;
-    border: none;
-    border-radius: 0;
-    padding: 0;
-    backdrop-filter: none;
-    box-shadow: none;
-    animation: none;
-  }
-
-  .drawer-acct {
-    order: 2;
-    border-bottom: none;
-    margin-bottom: 0;
-    padding: 0;
-    flex-shrink: 0;
-  }
-
-  .drawer-acct > span {
-    display: none;
-  }
-
-  .acct-status {
-    font-size: 0.88rem;
-  }
-
-  .nav-drawer nav {
-    order: 1;
-    display: flex;
-    flex-wrap: nowrap;
-    align-items: center;
-    gap: 4px;
-    margin: 0 auto;
-    overflow-x: auto;
-    scrollbar-width: none;
-  }
-
-  .nav-drawer nav::-webkit-scrollbar {
-    display: none;
-  }
-
-  .nav-drawer nav button {
-    width: auto;
-    text-align: center;
-    padding: 8px 13px;
-    font-size: 0.94rem;
-    border-radius: 9px;
-    white-space: nowrap;
-  }
-
-  .drawer-sep {
-    display: none;
-  }
-
-  .drawer-footer {
-    order: 3;
-    display: flex;
-    align-items: center;
-    flex-shrink: 0;
-  }
-
-  .drawer-footer .drawer-out {
-    width: auto;
-    padding: 8px 15px;
-    font-size: 0.92rem;
   }
 }
 
@@ -2054,12 +1982,6 @@ pre {
   background: var(--ok-bg);
   border-color: var(--ok-bd);
   color: var(--ok-ink);
-}
-
-.drawer-footer {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
 }
 
 .chat-composer {
@@ -2440,17 +2362,18 @@ pre {
 
 .acct-prog {
   display: block;
-  margin-top: 4px;
-  font-size: 0.79rem;
+  margin-top: 0;
+  font-size: 0.8rem;
   line-height: 1.35;
   color: var(--mut);
+  word-break: break-word;
 }
 
 .drawer-prog-btn {
-  margin-top: 8px;
+  margin-top: 2px;
   width: 100%;
   padding: 7px 10px;
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   text-align: center;
 }
 

@@ -104,6 +104,9 @@ function show(v, skipTransition = false) {
     if (v === "chat" && $("#log") && $("#log").children.length === 0) {
       renderWelcomeChatMessage();
     }
+    if (!alreadyVisible) {
+      window.scrollTo({ top: 0, behavior: "auto" });
+    }
     window.uvRevealReset?.(targetSection);
     window.uvRevealObserve?.(targetSection);
   };
@@ -458,7 +461,6 @@ function saveUserProgramme(prog) {
 function updateProgrammeUi() {
   const banner = $("#activeProgrammeBanner");
   const drawerProg = $("#drawerProg");
-  const changeBtn = $("#changeProgBtn");
 
   if (banner) {
     if (isAdminUser) {
@@ -466,13 +468,7 @@ function updateProgrammeUi() {
       banner.textContent = "Admin access: viewing all KNUST departments and uploaded papers.";
     } else if (userProgramme) {
       banner.hidden = false;
-      banner.innerHTML = `Programme: <strong>${esc(userProgramme.name)}</strong> (${esc(userProgramme.college)}) · `;
-      const btn = document.createElement("button");
-      btn.type = "button";
-      btn.className = "prog-change-link";
-      btn.textContent = "Change programme";
-      btn.onclick = () => openProgrammeDialog(true);
-      banner.append(btn);
+      banner.innerHTML = `Programme: <strong>${esc(userProgramme.name)}</strong> (${esc(userProgramme.college)})`;
     } else {
       banner.hidden = true;
       banner.textContent = "";
@@ -487,9 +483,6 @@ function updateProgrammeUi() {
       drawerProg.hidden = true;
       drawerProg.textContent = "";
     }
-  }
-  if (changeBtn) {
-    changeBtn.hidden = isAdminUser;
   }
 }
 
@@ -540,7 +533,8 @@ function populateModalProgrammeOptions(query = "", preferredId = "") {
   }
 }
 
-function openProgrammeDialog(allowCancel = true) {
+function openProgrammeDialog(allowCancel = false) {
+  if (userProgramme) return;
   const dlg = $("#programmeDialog");
   if (!dlg || !window.uvKnustCourses) return;
   if ($("#modalProgSearch")) $("#modalProgSearch").value = "";
@@ -548,17 +542,10 @@ function openProgrammeDialog(allowCancel = true) {
     $("#modalProgMsg").hidden = true;
     $("#modalProgMsg").textContent = "";
   }
-  populateModalProgrammeOptions("", userProgramme?.id || "");
+  populateModalProgrammeOptions("", "");
   if ($("#modalProgCancel")) $("#modalProgCancel").hidden = !allowCancel;
   dlg.dataset.required = allowCancel ? "0" : "1";
   if (!dlg.open) dlg.showModal();
-}
-
-if ($("#changeProgBtn")) {
-  $("#changeProgBtn").onclick = () => {
-    setMenuOpen(false);
-    openProgrammeDialog(true);
-  };
 }
 
 if ($("#modalProgCancel")) {
@@ -596,6 +583,10 @@ if ($("#programmeDialog")) {
 if ($("#programmeDialogForm")) {
   $("#programmeDialogForm").onsubmit = async (e) => {
     e.preventDefault();
+    if (userProgramme) {
+      if ($("#programmeDialog")?.open) $("#programmeDialog").close();
+      return;
+    }
     const msgEl = $("#modalProgMsg");
     const saveBtn = $("#modalProgSave");
     const picked = window.uvKnustCourses?.findProgramme($("#modalProgSelect")?.value || "");
@@ -753,7 +744,7 @@ function render(syncUrl = true) {
             .join("")}</div></article>`
       )
       .join("") ||
-    `<div class="card"><p style="color:var(--mut)">${Q.length ? "No accessible past papers match your search." : ALL_Q.length && !isAdminUser && userProgramme ? `No uploaded past papers match ${esc(userProgramme.name)} yet. You can upload one or switch your KNUST programme.` : "No approved questions yet."}</p></div>`;
+    `<div class="card"><p style="color:var(--mut)">${Q.length ? "No accessible past papers match your search." : ALL_Q.length && !isAdminUser && userProgramme ? `No uploaded past papers match ${esc(userProgramme.name)} yet. You can upload one under Upload &amp; Earn.` : "No approved questions yet."}</p></div>`;
   window.uvRevealObserve?.($("#list"), { fresh: Boolean(syncUrl) });
 }
 
@@ -771,7 +762,7 @@ async function openPaperById(id) {
     const outOfScope = ALL_Q.find((q) => q.id === id);
     if (outOfScope && !isAdminUser && userProgramme) {
       $("#rt").textContent = `${outOfScope.course_code} · Outside ${userProgramme.name}`;
-      $("#rb").textContent = `This paper (${outOfScope.department || outOfScope.course_code}) is outside your selected KNUST programme (${userProgramme.name}). Use "Change programme" if you are enrolled in another programme.`;
+      $("#rb").textContent = `This paper (${outOfScope.department || outOfScope.course_code}) is outside your registered KNUST programme (${userProgramme.name}).`;
       $("#solve").hidden = true;
       if ($("#explainPaper")) $("#explainPaper").hidden = true;
       if (!$("#reader").open) $("#reader").showModal();

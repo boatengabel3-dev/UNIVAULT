@@ -248,13 +248,14 @@ function applyMode(nextMode) {
   if ($("#tgl")) {
     $("#tgl").textContent = isUp ? "Already have an account? Sign in" : "New here? Create an account";
   }
+  if ($("#programmeGroup")) {
+    $("#programmeGroup").hidden = !isUp;
+  }
   if ($("#programme")) {
     $("#programme").required = isUp;
   }
   if ($("#programmeLabel")) {
-    $("#programmeLabel").textContent = isUp
-      ? "KNUST course offering"
-      : "KNUST course offering (optional on sign in)";
+    $("#programmeLabel").textContent = "KNUST course offering";
   }
   updateProgrammeHint(window.uvKnustCourses?.findProgramme($("#programme")?.value || ""));
   if ($("#forgotPw")) $("#forgotPw").hidden = isUp;
@@ -496,8 +497,9 @@ $("#f").onsubmit = async (e) => {
   const email = $("#em").value.trim().toLowerCase();
   const password = $("#pw").value;
   const fullName = $("#name")?.value.trim() || "";
-  const rawProgramme = $("#programme")?.value || "";
-  const selectedProg = window.uvKnustCourses?.findProgramme(rawProgramme) || null;
+  const rawProgramme = mode === "up" ? $("#programme")?.value || "" : "";
+  const selectedProg =
+    mode === "up" ? window.uvKnustCourses?.findProgramme(rawProgramme) || null : null;
 
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     setMsg("Please enter a valid email address.");
@@ -578,7 +580,7 @@ $("#f").onsubmit = async (e) => {
         authedUser?.user_metadata?.programme_id || authedUser?.user_metadata?.programme
       ) || null;
 
-    let effectiveProg = selectedProg || registeredProg;
+    let effectiveProg = registeredProg || selectedProg;
     if (!effectiveProg && authedUser?.id && typeof sb?.from === "function") {
       try {
         const { data: profRow } = await sb
@@ -597,8 +599,9 @@ $("#f").onsubmit = async (e) => {
 
     const shouldSyncMeta =
       r.data?.session &&
+      mode === "up" &&
       selectedProg &&
-      (!registeredProg || registeredProg.id !== selectedProg.id);
+      !registeredProg;
 
     if (shouldSyncMeta && typeof sb?.auth?.updateUser === "function") {
       try {
