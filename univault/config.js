@@ -619,35 +619,183 @@ const uvTheme = (() => {
 const uvPwa = (() => {
   let deferredPrompt = null;
   let offlineEl = null;
+  let iosDialog = null;
 
   const isStandalone = () =>
     (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) ||
     window.navigator.standalone === true;
 
+  const isIPad = () => {
+    const ua = navigator.userAgent || "";
+    return (
+      /iPad/i.test(ua) ||
+      (navigator.platform === "MacIntel" && (navigator.maxTouchPoints || 0) > 1)
+    );
+  };
+
+  const isIOS = () => {
+    const ua = navigator.userAgent || "";
+    return /iPhone|iPod/i.test(ua) || isIPad();
+  };
+
+  function getIosBrowserContext() {
+    const ua = navigator.userAgent || "";
+    const inIframe = (() => {
+      try {
+        return window.self !== window.top;
+      } catch {
+        return true;
+      }
+    })();
+    const isInApp =
+      /FBAN|FBAV|Instagram|Line|MicroMessenger|Snapchat|TikTok|BytedanceWebview|WhatsApp|Twitter|GSA\//i.test(
+        ua
+      );
+    const isChromeIOS = /CriOS/i.test(ua);
+    const isThirdPartyIOS = /CriOS|FxiOS|EdgiOS|OPiOS|DuckDuckGo/i.test(ua);
+    const isSafari = /Safari/i.test(ua) && !isThirdPartyIOS && !isInApp;
+    return { inIframe, isInApp, isChromeIOS, isThirdPartyIOS, isSafari };
+  }
+
   function syncInstallButtons() {
     const installed = isStandalone();
-    const canInstall = !installed && Boolean(deferredPrompt);
+    const ios = isIOS();
+    const canInstall = !installed && (Boolean(deferredPrompt) || ios);
+    const defaultLabel = ios
+      ? isIPad()
+        ? "Install on iPad"
+        : "Install on iPhone"
+      : "Install App";
 
     document.querySelectorAll("[data-pwa-install]").forEach((btn) => {
       if (canInstall) {
         btn.hidden = false;
-        btn.textContent = btn.dataset.installLabel || "Install App";
+        btn.textContent = ios
+          ? btn.dataset.iosLabel || defaultLabel
+          : btn.dataset.installLabel || "Install App";
       } else {
         btn.hidden = true;
       }
     });
   }
 
+  async function copyAppLink(btn) {
+    const url = location.origin + "/";
+    let ok = false;
+    if (navigator.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(url);
+        ok = true;
+      } catch {}
+    }
+    if (!ok) {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = url;
+        ta.setAttribute("readonly", "");
+        ta.style.position = "fixed";
+        ta.style.top = "-9999px";
+        document.body.appendChild(ta);
+        ta.select();
+        ta.setSelectionRange(0, url.length);
+        ok = document.execCommand("copy");
+        ta.remove();
+      } catch {}
+    }
+    if (btn) {
+      const prev = btn.dataset.origLabel || btn.textContent;
+      btn.dataset.origLabel = prev;
+      btn.textContent = ok ? "Link copied — open in Safari" : "Select & copy: " + url;
+      setTimeout(() => {
+        btn.textContent = prev;
+      }, 2600);
+    }
+  }
+
+  function showIosInstallGuide() {
+    if (!document.body) return;
+    if (!iosDialog) {
+      iosDialog = document.createElement("dialog");
+      iosDialog.id = "uvIosInstallDialog";
+      iosDialog.className = "glass uv-ios-dialog";
+      iosDialog.setAttribute("aria-labelledby", "uvIosTitle");
+      iosDialog.addEventListener("click", (e) => {
+        if (e.target === iosDialog) iosDialog.close();
+      });
+      document.body.appendChild(iosDialog);
+    }
+
+    const { inIframe, isInApp, isChromeIOS, isThirdPartyIOS } = getIosBrowserContext();
+    const deviceWord = isIPad() ? "iPad" : "iPhone";
+    const shareIcon =
+      '<svg class="uv-ios-ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="m8 7 4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>';
+    const addIcon =
+      '<svg class="uv-ios-ico" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="M12 8v8"/><path d="M8 12h8"/></svg>';
+
+    let callout = "";
+    if (inIframe) {
+      callout =
+        '<div class="uv-ios-callout">You are viewing UniVault inside an embedded frame. iOS will only install the app when opened directly in <strong>Safari</strong>. Copy the link below and open it in Safari first.</div>';
+    } else if (isInApp || (isThirdPartyIOS && !isChromeIOS)) {
+      callout =
+        '<div class="uv-ios-callout">This in-app browser cannot add Home Screen apps directly. Tap <strong>Copy App Link</strong> below and open it in <strong>Safari</strong>.</div>';
+    }
+
+    const stepsHtml = isChromeIOS && !inIframe && !isInApp
+      ? `<ol class="uv-ios-steps">
+          <li><span>Tap the <strong>Share</strong> icon ${shareIcon} at the top-right of Chrome’s address bar (or open this link in <strong>Safari</strong>).</span></li>
+          <li><span>Scroll down and tap <strong>Add to Home Screen</strong> ${addIcon}.</span></li>
+          <li><span>Tap <strong>Add</strong> — UniVault will launch fullscreen from your ${deviceWord} Home Screen.</span></li>
+        </ol>`
+      : `<ol class="uv-ios-steps">
+          <li><span>Open UniVault in <strong>Safari</strong>, then tap the <strong>Share</strong> button ${shareIcon} in the bottom toolbar.</span></li>
+          <li><span>Scroll down the share sheet and tap <strong>Add to Home Screen</strong> ${addIcon}.</span></li>
+          <li><span>Tap <strong>Add</strong> in the top-right corner to install UniVault on your ${deviceWord}.</span></li>
+        </ol>`;
+
+    iosDialog.innerHTML = `
+      <div class="uv-ios-head">
+        <img src="/assets/apple-touch-icon.png" alt="UniVault icon" class="uv-ios-appicon">
+        <div>
+          <h3 id="uvIosTitle">Install UniVault on ${deviceWord}</h3>
+          <p>Launch fullscreen and keep saved papers offline.</p>
+        </div>
+      </div>
+      ${callout}
+      ${stepsHtml}
+      <div class="uv-ios-actions">
+        <button type="button" class="ghost" id="uvIosCopyLink">Copy App Link</button>
+        <button type="button" id="uvIosClose">Done</button>
+      </div>
+    `;
+
+    const copyBtn = iosDialog.querySelector("#uvIosCopyLink");
+    const closeBtn = iosDialog.querySelector("#uvIosClose");
+    if (copyBtn) copyBtn.onclick = () => copyAppLink(copyBtn);
+    if (closeBtn) closeBtn.onclick = () => iosDialog.close();
+
+    if (typeof iosDialog.showModal === "function") {
+      if (!iosDialog.open) iosDialog.showModal();
+    } else {
+      iosDialog.setAttribute("open", "");
+    }
+  }
+
   async function triggerInstall() {
-    if (!deferredPrompt) return;
-    try {
-      await deferredPrompt.prompt();
-      const choice = await deferredPrompt.userChoice;
-      if (choice?.outcome === "accepted") {
-        deferredPrompt = null;
-      }
-    } catch {}
-    syncInstallButtons();
+    if (deferredPrompt) {
+      try {
+        await deferredPrompt.prompt();
+        const choice = await deferredPrompt.userChoice;
+        if (choice?.outcome === "accepted") {
+          deferredPrompt = null;
+        }
+      } catch {}
+      syncInstallButtons();
+      return;
+    }
+    if (isIOS() && !isStandalone()) {
+      showIosInstallGuide();
+    }
   }
 
   function ensureOfflineBar() {
@@ -711,7 +859,17 @@ const uvPwa = (() => {
     });
   }
 
-  window.uvPwa = { syncInstallButtons, syncOnlineStatus, clearUserCache };
-  return { syncInstallButtons, syncOnlineStatus, clearUserCache };
+  window.uvPwa = {
+    syncInstallButtons,
+    syncOnlineStatus,
+    clearUserCache,
+    showIosInstallGuide,
+  };
+  return {
+    syncInstallButtons,
+    syncOnlineStatus,
+    clearUserCache,
+    showIosInstallGuide,
+  };
 })();
 

@@ -2231,6 +2231,90 @@ pre {
   display: none;
 }
 
+.uv-ios-dialog {
+  width: min(440px, 92vw);
+  margin: auto;
+  padding: 22px;
+  border-radius: 18px;
+  border: 1px solid var(--c-border);
+  background: var(--drawer-bg);
+  color: var(--ink);
+  box-shadow: var(--shadow-drawer);
+}
+
+.uv-ios-dialog::backdrop {
+  background: rgba(5, 10, 20, 0.72);
+  backdrop-filter: blur(6px);
+}
+
+.uv-ios-head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.uv-ios-appicon {
+  width: 52px;
+  height: 52px;
+  border-radius: 13px;
+  border: 1px solid var(--b);
+  flex-shrink: 0;
+}
+
+.uv-ios-head h3 {
+  margin: 0 0 3px;
+  font-size: 1.12rem;
+  color: var(--head);
+}
+
+.uv-ios-head p {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--mut);
+  line-height: 1.4;
+}
+
+.uv-ios-callout {
+  margin-bottom: 14px;
+  padding: 11px 13px;
+  border-radius: 12px;
+  background: var(--err-bg);
+  border: 1px solid var(--err-bd);
+  color: var(--err-ink);
+  font-size: 0.87rem;
+  line-height: 1.48;
+}
+
+.uv-ios-steps {
+  margin: 0 0 18px;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--body-soft);
+}
+
+.uv-ios-steps strong {
+  color: var(--head);
+}
+
+.uv-ios-ico {
+  display: inline-block;
+  vertical-align: -3px;
+  margin: 0 2px;
+  color: var(--c);
+}
+
+.uv-ios-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
 .uv-offline-bar {
   position: fixed;
   left: max(16px, env(safe-area-inset-left, 0px));
