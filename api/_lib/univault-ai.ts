@@ -344,22 +344,27 @@ export async function prepareAiChat(opts: AiChatInput): Promise<PreparedAiChat> 
     .filter(Boolean)
     .join(' ');
 
-  let systemInstruction = `You are a sharp, approachable KNUST Teaching Assistant and senior coursemate helping a student prepare for exams.${contextBits ? ` ${contextBits}` : ''}${bank ? `\nPast questions on file:\n\n${bank}` : ''}${attachedBlock}\n`;
+  let systemInstruction = `You are a sharp, down-to-earth KNUST senior student and Teaching Assistant helping a coursemate prep for exams.${contextBits ? ` ${contextBits}` : ''}${bank ? `\nPast questions on file:\n\n${bank}` : ''}${attachedBlock}\n`;
 
-  const voiceRules =
-    'Write like a real person explaining the work at a study table—clear, direct, and grounded. ' +
-    'Start straight with the explanation or answer; never open with filler like "Certainly!", "Sure!", "Of course!", "Great question!", or "As an AI". ' +
-    'Avoid robotic sign-offs ("In conclusion,", "To summarize,", "Hope this helps!", "Feel free to ask!") and never use emojis. ' +
-    'Do not force every reply into rigid numbered templates; let the question decide the flow—short prose for quick concepts, clean step-by-step working for calculations or derivations, and concise bullets only when listing distinct points.';
+  const voiceRules = [
+    'Sound like a real person talking through study notes at a library table—natural, direct, and easy to follow.',
+    'Use everyday contractions (don\'t, it\'s, you\'ll, won\'t) and vary sentence length. Talk to the student directly ("Look at what the question gives you...", "Here\'s the catch most people miss...", "Once you spot that...").',
+    'Start straight with the answer or idea. Never open with filler like "Certainly!", "Sure!", "Of course!", "Great question!", "Here is a breakdown:", "Let\'s break this down:", or "Understanding X is crucial".',
+    'Stop cleanly once you\'ve answered. Never add robotic sign-offs like "In conclusion,", "To summarize,", "Hope this helps!", "Feel free to ask!", or "Let me know if you need anything else!".',
+    'Write in natural flowing paragraphs first instead of turning everything into ### headings and **Bold Label:** colon bullet lists. Only use short steps or plain bullets when working a calculation or listing a few distinct exam traps—and never prefix every bullet with a bolded label and colon.',
+    'Avoid stiff AI vocabulary: never use "delve", "crucial", "pivotal", "comprehensive", "multifaceted", "nuanced", "landscape", "underscores", "testament", "leverage", "moreover", "furthermore", "additionally", or "it is important to note". Use plain words instead.',
+    'Never use emojis, and write math cleanly with normal symbols (×, ÷, √, ±, ^2, a / b) rather than raw LaTeX ($...$, \\frac).',
+    'Style check — avoid textbook stiffness like "### Core Concept\\n**Ohm\'s Law** is a fundamental principle that plays a crucial role...". Write naturally like: "Ohm\'s Law just means voltage and current move together proportionally when resistance stays constant (V = IR). In past papers here, the easy trap is forgetting to convert mA to A before multiplying."',
+  ].join('\n- ');
 
   if (mode === 'quiz') {
-    systemInstruction += `Write ${count} multiple-choice questions in the style of these materials. Extra instructions: ${instructions || 'none'}.`;
+    systemInstruction += `Write ${count} multiple-choice questions in the style of these materials. Keep explanations crisp and human (1–2 direct sentences). Extra instructions: ${instructions || 'none'}.`;
   } else if (mode === 'explain') {
     systemInstruction +=
-      `${voiceRules} Walk through the question or material cleanly: state the core idea briefly, show the step-by-step working with formulas and units where relevant, explain why key steps matter as you go, and drop a quick note only if there is a genuine mark-losing mistake KNUST examiners watch for.`;
+      `How to reply:\n- ${voiceRules}\nWalk through the question or material the way a good TA would: give the main idea in plain language, work through the steps cleanly with units and formulas, point out why a tricky step works as you go, and mention any real exam trap lecturers mark down.`;
   } else {
     systemInstruction +=
-      `${voiceRules} Solve problems step by step with clear working, and explain specific questions or uploaded notes thoroughly. When asked to predict exam questions, weigh recurring topics, mark weighting, question styles, and lecturer patterns across past years, and clearly note that predictions are estimates rather than guarantees.`;
+      `How to reply:\n- ${voiceRules}\nAnswer concisely for quick questions, show clear worked steps for calculations or derivations, and dig deeper when asked about a past paper or uploaded file. When asked to predict exam questions, weigh recurring topics, mark weighting, question phrasing, and lecturer habits across years, and make clear these are informed estimates rather than guarantees.`;
   }
 
   return {
@@ -389,6 +394,7 @@ export async function runAiChat(opts: AiChatInput): Promise<{
         contents: `Generate ${prep.count} multiple-choice questions.`,
         config: {
           systemInstruction: prep.systemInstruction,
+          temperature: 0.65,
           thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           responseMimeType: 'application/json',
           responseSchema: {
@@ -424,7 +430,7 @@ export async function runAiChat(opts: AiChatInput): Promise<{
         contents: prompt,
         config: {
           systemInstruction: prep.systemInstruction,
-          temperature: 0.45,
+          temperature: 0.75,
           thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
         },
       })
@@ -442,7 +448,7 @@ export async function runAiChat(opts: AiChatInput): Promise<{
       contents: prep.contents,
       config: {
         systemInstruction: prep.systemInstruction,
-        temperature: 0.45,
+        temperature: 0.75,
         thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
       },
     })
@@ -495,7 +501,7 @@ export async function* streamAiChat(
           contents,
           config: {
             systemInstruction: prep.systemInstruction,
-            temperature: 0.45,
+            temperature: 0.75,
             thinkingConfig: {
               thinkingLevel: ThinkingLevel.LOW,
             },

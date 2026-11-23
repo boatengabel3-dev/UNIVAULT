@@ -931,11 +931,38 @@ dialog {
   transition: border-color 0.18s ease, background-color 0.18s ease;
 }
 
+@keyframes uvMsgFlyLeft {
+  from {
+    opacity: 0;
+    translate: -28px 12px;
+    scale: 0.96;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+    scale: 1;
+  }
+}
+
+@keyframes uvMsgFlyRight {
+  from {
+    opacity: 0;
+    translate: 28px 12px;
+    scale: 0.96;
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+    scale: 1;
+  }
+}
+
 .m.u {
   align-self: flex-end;
   background: var(--msg-user-bg);
   color: var(--msg-user-ink);
   border-color: rgba(59, 130, 246, 0.30);
+  animation: uvMsgFlyRight 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .m.a {
@@ -943,6 +970,7 @@ dialog {
   background: var(--g);
   color: var(--ink);
   border-color: var(--b);
+  animation: uvMsgFlyLeft 0.38s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 :root[data-theme="light"] .m.a {
@@ -1491,31 +1519,67 @@ pre {
 @keyframes uvViewEnter {
   from {
     opacity: 0;
-    transform: perspective(1200px) translateY(14px) rotateX(2.2deg) scale(0.992);
+    translate: 0 22px;
+    scale: 0.982;
   }
   to {
     opacity: 1;
-    transform: perspective(1200px) translateY(0) rotateX(0deg) scale(1);
+    translate: 0 0;
+    scale: 1;
   }
 }
 
 .uv-view-enter {
-  animation: uvViewEnter 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: uvViewEnter 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-/* Embedded scroll/render reveal transitions */
+/* Directional fly-in reveal for boxes, cards, stats, and panels (uses standalone translate/scale so 3D tilt transforms stay intact) */
 .uv-reveal {
   opacity: 0;
-  transform: perspective(1000px) translateY(18px) rotateX(3.5deg);
+  translate: var(--fly-x, 0px) var(--fly-y, 44px);
+  scale: var(--fly-scale, 0.93);
+  filter: blur(3px);
   transition:
-    opacity 0.52s cubic-bezier(0.16, 1, 0.3, 1),
-    transform 0.58s cubic-bezier(0.16, 1, 0.3, 1);
-  transition-delay: var(--uv-delay, 0ms);
+    opacity 0.56s cubic-bezier(0.22, 1, 0.36, 1) var(--uv-delay, 0ms),
+    translate 0.68s cubic-bezier(0.16, 1, 0.3, 1) var(--uv-delay, 0ms),
+    scale 0.68s cubic-bezier(0.16, 1, 0.3, 1) var(--uv-delay, 0ms),
+    filter 0.50s ease var(--uv-delay, 0ms),
+    transform 0.24s cubic-bezier(0.16, 1, 0.3, 1) 0ms,
+    border-color 0.22s ease 0ms,
+    background-color 0.22s ease 0ms,
+    box-shadow 0.24s ease 0ms;
+  will-change: opacity, translate, scale, transform;
+}
+
+.uv-reveal.uv-fly-left {
+  --fly-x: -52px;
+  --fly-y: 20px;
+  --fly-scale: 0.94;
+}
+
+.uv-reveal.uv-fly-right {
+  --fly-x: 52px;
+  --fly-y: 20px;
+  --fly-scale: 0.94;
+}
+
+.uv-reveal.uv-fly-down {
+  --fly-x: 0px;
+  --fly-y: -32px;
+  --fly-scale: 0.96;
+}
+
+.uv-reveal.uv-fly-zoom {
+  --fly-x: 0px;
+  --fly-y: 24px;
+  --fly-scale: 0.88;
 }
 
 .uv-reveal.uv-revealed {
   opacity: 1;
-  transform: perspective(1000px) translateY(0) rotateX(0deg);
+  translate: 0px 0px;
+  scale: 1;
+  filter: blur(0px);
 }
 
 /* Desktop Typography & Friendly Inline Header Navigation */
@@ -2463,6 +2527,8 @@ pre {
   .uv-crest-ring::before,
   .uv-crest-ring img,
   .uv-view-enter,
+  .m.u,
+  .m.a,
   dialog[open],
   .nav-drawer,
   .mic-btn.is-recording,
@@ -2484,6 +2550,9 @@ pre {
   .uv-reveal {
     transition: none;
     transform: none;
+    translate: none;
+    scale: 1;
+    filter: none;
     opacity: 1;
   }
 

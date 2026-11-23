@@ -104,6 +104,7 @@ function show(v, skipTransition = false) {
     if (v === "chat" && $("#log") && $("#log").children.length === 0) {
       renderWelcomeChatMessage();
     }
+    window.uvRevealReset?.(targetSection);
     window.uvRevealObserve?.(targetSection);
   };
 
@@ -2031,6 +2032,7 @@ $("#gen").onclick = async () => {
               .join("")}<small hidden>${esc(q.explain)}</small></div>`
         )
         .join("") + '<button id="grade">Submit</button><p id="score"></p>';
+    window.uvRevealObserve?.(o);
     $("#grade").onclick = () => {
       let s = 0;
       quiz.forEach((q, i) => {

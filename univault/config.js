@@ -413,12 +413,78 @@ const uvMotion = (() => {
   const hasFinePointer = () =>
     window.matchMedia && window.matchMedia("(pointer: fine)").matches;
 
+  const BOX_SELECTOR =
+    ".uv-reveal, .card, .glass, .stat, .home-metric, .filter-panel, .home-hero, .dash-panel, .row-item, .welcome-banner, .auth-card, .auth-institution, .auth-pillars li, .qq";
+  const GRID_CONTAINER_SELECTOR =
+    ".grid, .tgrid, .stats, .home-metrics, .two-col, .auth-pillars, .dash-list, #mine, #pays, #quizOut";
+
   let observer = null;
+
+  function isHiddenBranch(el) {
+    return Boolean(el.closest("[hidden], dialog:not([open])"));
+  }
+
+  function applyDirectionHint(el, indexInGrid) {
+    if (
+      el.classList.contains("uv-fly-left") ||
+      el.classList.contains("uv-fly-right") ||
+      el.classList.contains("uv-fly-down") ||
+      el.classList.contains("uv-fly-zoom")
+    ) {
+      return;
+    }
+    const mod = indexInGrid % 3;
+    if (mod === 0) {
+      el.classList.add("uv-fly-left");
+    } else if (mod === 2) {
+      el.classList.add("uv-fly-right");
+    }
+  }
+
+  function revealNode(el) {
+    if (!el || el.classList.contains("uv-revealed")) return;
+    requestAnimationFrame(() => {
+      el.classList.add("uv-revealed");
+    });
+    if (observer) observer.unobserve(el);
+  }
+
+  function resetReveals(root = document) {
+    const scope = root && typeof root.querySelectorAll === "function" ? root : document;
+    scope.querySelectorAll(".uv-reveal.uv-revealed").forEach((el) => {
+      if (isHiddenBranch(el)) return;
+      el.classList.remove("uv-revealed");
+      void el.offsetWidth;
+    });
+  }
 
   function observeReveals(root = document) {
     const scope = root && typeof root.querySelectorAll === "function" ? root : document;
-    const nodes = scope.querySelectorAll(".uv-reveal");
+    const found = new Set(scope.querySelectorAll(BOX_SELECTOR));
+    if (scope !== document && typeof scope.matches === "function" && scope.matches(BOX_SELECTOR)) {
+      found.add(scope);
+    }
+
+    const nodes = [...found].filter((el) => !isHiddenBranch(el));
     if (!nodes.length) return;
+
+    const gridCounters = new WeakMap();
+    nodes.forEach((el) => {
+      if (!el.classList.contains("uv-reveal")) {
+        el.classList.add("uv-reveal");
+      }
+      const gridParent = el.parentElement?.closest?.(GRID_CONTAINER_SELECTOR) || el.parentElement;
+      if (gridParent) {
+        const count = gridCounters.get(gridParent) || 0;
+        gridCounters.set(gridParent, count + 1);
+        if (gridParent.matches?.(GRID_CONTAINER_SELECTOR)) {
+          applyDirectionHint(el, count);
+        }
+        if (!el.style.getPropertyValue("--uv-delay")) {
+          el.style.setProperty("--uv-delay", `${Math.min(count * 70, 420)}ms`);
+        }
+      }
+    });
 
     if (prefersReduced() || typeof IntersectionObserver === "undefined") {
       nodes.forEach((n) => n.classList.add("uv-revealed"));
@@ -430,22 +496,22 @@ const uvMotion = (() => {
         (entries) => {
           entries.forEach((entry) => {
             if (!entry.isIntersecting) return;
-            entry.target.classList.add("uv-revealed");
-            observer.unobserve(entry.target);
+            revealNode(entry.target);
           });
         },
-        { threshold: 0.08, rootMargin: "0px 0px -30px 0px" }
+        { threshold: 0.04, rootMargin: "0px 0px -12px 0px" }
       );
     }
 
-    let idx = 0;
+    const vh = window.innerHeight || 900;
     nodes.forEach((n) => {
       if (n.classList.contains("uv-revealed")) return;
-      if (!n.style.getPropertyValue("--uv-delay")) {
-        n.style.setProperty("--uv-delay", `${Math.min(idx * 55, 280)}ms`);
-        idx++;
+      const rect = n.getBoundingClientRect();
+      if (rect.width > 0 && rect.height > 0 && rect.top < vh * 0.96 && rect.bottom > 0) {
+        revealNode(n);
+      } else {
+        observer.observe(n);
       }
-      observer.observe(n);
     });
   }
 
@@ -537,7 +603,8 @@ const uvMotion = (() => {
   });
 
   window.uvRevealObserve = observeReveals;
-  return { observeReveals };
+  window.uvRevealReset = resetReveals;
+  return { observeReveals, resetReveals };
 })();
 
 const uvTheme = (() => {

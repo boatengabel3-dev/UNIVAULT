@@ -21,6 +21,8 @@ function showAdminTab(tab) {
       if (match) {
         void s.offsetWidth;
         s.classList.add("uv-view-enter");
+        window.uvRevealReset?.(s);
+        window.uvRevealObserve?.(s);
       }
     });
     document
@@ -99,6 +101,7 @@ function renderQuestionsOverview() {
       return `<div class="row-item"><div class="row-main"><strong>${esc(q.course_code)}${q.course_title ? " — " + esc(q.course_title) : ""}</strong><span>${esc(q.department)} · ${q.year}${q.semester ? " S" + q.semester : ""}${desc}</span></div><div class="row-meta"><span style="color:var(--mut)">${esc(dt)}</span><span class="${cls}">${esc(q.status)}</span></div></div>`;
     })
     .join("");
+  window.uvRevealObserve?.(listEl);
 }
 
 $("#ovFilter").onclick = (e) => {
@@ -259,6 +262,8 @@ async function load() {
       })
       .join("") ||
     `<div class="row-item"><div class="row-main"><strong>No completed payouts yet</strong></div></div>`;
+
+  window.uvRevealObserve?.(document.body);
 }
 
 if ($("#settingsForm")) {
