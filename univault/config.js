@@ -418,7 +418,9 @@ const uvMotion = (() => {
   const GRID_CONTAINER_SELECTOR =
     ".grid, .tgrid, .stats, .home-metrics, .two-col, .auth-pillars, .dash-list, #mine, #pays, #quizOut";
 
+  const DELAY_STEP_MS = 1500;
   let observer = null;
+  let queueTailMs = 0;
 
   function isHiddenBranch(el) {
     return Boolean(el.closest("[hidden], dialog:not([open])"));
@@ -441,25 +443,55 @@ const uvMotion = (() => {
     }
   }
 
-  function revealNode(el) {
-    if (!el || el.classList.contains("uv-revealed")) return;
-    requestAnimationFrame(() => {
-      el.classList.add("uv-revealed");
+  function sortVisualOrder(elements) {
+    return [...elements].sort((a, b) => {
+      const ra = a.getBoundingClientRect();
+      const rb = b.getBoundingClientRect();
+      if (Math.abs(ra.top - rb.top) > 24) {
+        return ra.top - rb.top;
+      }
+      return ra.left - rb.left;
     });
-    if (observer) observer.unobserve(el);
+  }
+
+  function revealBatch(elements) {
+    if (!elements || !elements.length) return;
+    const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+    let cursor = Math.max(now, queueTailMs);
+
+    elements.forEach((el) => {
+      if (!el || el.classList.contains("uv-revealed") || el.dataset.uvQueued === "1") return;
+      el.dataset.uvQueued = "1";
+      const delayMs = Math.max(0, Math.round(cursor - now));
+      el.style.setProperty("--uv-delay", `${delayMs}ms`);
+      cursor += DELAY_STEP_MS;
+      requestAnimationFrame(() => {
+        el.classList.add("uv-revealed");
+        delete el.dataset.uvQueued;
+      });
+      if (observer) observer.unobserve(el);
+    });
+
+    queueTailMs = cursor;
   }
 
   function resetReveals(root = document) {
     const scope = root && typeof root.querySelectorAll === "function" ? root : document;
-    scope.querySelectorAll(".uv-reveal.uv-revealed").forEach((el) => {
+    queueTailMs = 0;
+    scope.querySelectorAll(".uv-reveal").forEach((el) => {
       if (isHiddenBranch(el)) return;
+      delete el.dataset.uvQueued;
       el.classList.remove("uv-revealed");
+      el.style.removeProperty("--uv-delay");
       void el.offsetWidth;
     });
   }
 
-  function observeReveals(root = document) {
+  function observeReveals(root = document, opts = {}) {
     const scope = root && typeof root.querySelectorAll === "function" ? root : document;
+    if (opts && opts.fresh) {
+      queueTailMs = 0;
+    }
     const found = new Set(scope.querySelectorAll(BOX_SELECTOR));
     if (scope !== document && typeof scope.matches === "function" && scope.matches(BOX_SELECTOR)) {
       found.add(scope);
@@ -480,9 +512,6 @@ const uvMotion = (() => {
         if (gridParent.matches?.(GRID_CONTAINER_SELECTOR)) {
           applyDirectionHint(el, count);
         }
-        if (!el.style.getPropertyValue("--uv-delay")) {
-          el.style.setProperty("--uv-delay", `${Math.min(count * 70, 420)}ms`);
-        }
       }
     });
 
@@ -494,25 +523,37 @@ const uvMotion = (() => {
     if (!observer) {
       observer = new IntersectionObserver(
         (entries) => {
-          entries.forEach((entry) => {
-            if (!entry.isIntersecting) return;
-            revealNode(entry.target);
-          });
+          const batch = sortVisualOrder(
+            entries.filter((entry) => entry.isIntersecting).map((entry) => entry.target)
+          );
+          revealBatch(batch);
         },
         { threshold: 0.04, rootMargin: "0px 0px -12px 0px" }
       );
     }
 
+    if (
+      scope === document &&
+      queueTailMs === 0 &&
+      window.scrollY < 80 &&
+      document.querySelector(".hero")
+    ) {
+      const now = typeof performance !== "undefined" ? performance.now() : Date.now();
+      queueTailMs = now + DELAY_STEP_MS * 4;
+    }
+
     const vh = window.innerHeight || 900;
+    const immediateBatch = [];
     nodes.forEach((n) => {
-      if (n.classList.contains("uv-revealed")) return;
+      if (n.classList.contains("uv-revealed") || n.dataset.uvQueued === "1") return;
       const rect = n.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0 && rect.top < vh * 0.96 && rect.bottom > 0) {
-        revealNode(n);
+        immediateBatch.push(n);
       } else {
         observer.observe(n);
       }
     });
+    revealBatch(sortVisualOrder(immediateBatch));
   }
 
   function init3D() {

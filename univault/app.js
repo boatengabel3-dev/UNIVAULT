@@ -754,7 +754,7 @@ function render(syncUrl = true) {
       )
       .join("") ||
     `<div class="card"><p style="color:var(--mut)">${Q.length ? "No accessible past papers match your search." : ALL_Q.length && !isAdminUser && userProgramme ? `No uploaded past papers match ${esc(userProgramme.name)} yet. You can upload one or switch your KNUST programme.` : "No approved questions yet."}</p></div>`;
-  window.uvRevealObserve?.($("#list"));
+  window.uvRevealObserve?.($("#list"), { fresh: Boolean(syncUrl) });
 }
 
 $("#dep").onchange = $("#search").oninput = () => render(true);
