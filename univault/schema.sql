@@ -4,6 +4,7 @@ create table question_content(question_id uuid primary key references questions 
 create table profiles(id uuid primary key references auth.users on delete cascade,full_name text,programme_id text,programme text,balance int default 0,premium_until timestamptz,created_at timestamptz default now());
 alter table if exists public.profiles add column if not exists programme_id text;
 alter table if exists public.profiles add column if not exists programme text;
+alter table if exists public.profiles add column if not exists free_question_ids uuid[] not null default '{}';
 create table payments(reference text primary key,user_id uuid,amount int,created_at timestamptz default now());
 create table payouts(id uuid default gen_random_uuid() primary key,user_id uuid references auth.users,amount int,account_name text,momo text,network text,status text default 'pending',created_at timestamptz default now());
 create table admins(user_id uuid primary key references auth.users on delete cascade);
@@ -11,7 +12,16 @@ alter table questions enable row level security;alter table question_content ena
 create function is_admin() returns boolean language sql security definer stable set search_path = public as $$ select exists(select 1 from public.admins where user_id=auth.uid()) $$;
 create function is_premium() returns boolean language sql security definer stable set search_path = public as $$ select exists(select 1 from public.profiles where id=auth.uid() and premium_until>now()) $$;
 create policy "q read" on questions for select using(status='approved' or uploader=auth.uid() or is_admin());
-create policy "content read" on question_content for select using(is_admin() or (is_premium() and exists(select 1 from questions q where q.id=question_id and q.status='approved')) or exists(select 1 from questions q where q.id=question_id and q.uploader=auth.uid()));
+drop policy if exists "content read" on public.question_content;
+create policy "content read" on question_content for select using(
+  is_admin()
+  or (is_premium() and exists(select 1 from questions q where q.id=question_id and q.status='approved'))
+  or exists(select 1 from questions q where q.id=question_id and q.uploader=auth.uid())
+  or (
+    exists(select 1 from questions q where q.id=question_id and q.status='approved')
+    and exists(select 1 from public.profiles p where p.id=auth.uid() and question_id = any(coalesce(p.free_question_ids, '{}')))
+  )
+);
 create policy "own profile" on profiles for select using(auth.uid()=id or is_admin());
 drop policy if exists "own profile programme update" on profiles;
 create policy "own profile programme update" on profiles for update using(auth.uid()=id) with check(auth.uid()=id);
@@ -141,17 +151,19 @@ create policy "testimonials read" on testimonials for select using(approved=true
 create policy "testimonials insert" on testimonials for insert with check(char_length(trim(author_name))>=2 and char_length(trim(role))>=2 and char_length(trim(quote)) between 15 and 600 and (coalesce(approved,false)=false or is_admin()));
 create policy "testimonials admin update" on testimonials for update using(is_admin());
 create policy "testimonials admin delete" on testimonials for delete using(is_admin());
--- Admin-configurable pricing & free AI allowance before Premium
+-- Admin-configurable pricing & free tier allowances before Pro/Premium
 alter table if exists public.profiles add column if not exists ai_uses int default 0;
-create table if not exists public.app_settings(id int primary key default 1 check(id=1),price_ghs numeric(10,2) not null default 30,free_ai_limit int not null default 5,updated_at timestamptz default now());
-insert into public.app_settings(id,price_ghs,free_ai_limit) values(1,30,5) on conflict (id) do nothing;
+alter table if exists public.profiles add column if not exists free_question_ids uuid[] not null default '{}';
+create table if not exists public.app_settings(id int primary key default 1 check(id=1),price_ghs numeric(10,2) not null default 30,free_ai_limit int not null default 5,free_questions_limit int not null default 3,updated_at timestamptz default now());
+alter table if exists public.app_settings add column if not exists free_questions_limit int not null default 3;
+insert into public.app_settings(id,price_ghs,free_ai_limit,free_questions_limit) values(1,30,5,3) on conflict (id) do nothing;
 alter table public.app_settings enable row level security;
 drop policy if exists "settings public read" on public.app_settings;
 create policy "settings public read" on public.app_settings for select using(true);
 drop policy if exists "settings admin insert" on public.app_settings;
-create policy "settings admin insert" on public.app_settings for insert with check(is_admin() and price_ghs>0 and free_ai_limit>=0);
+create policy "settings admin insert" on public.app_settings for insert with check(is_admin() and price_ghs>0 and free_ai_limit>=0 and coalesce(free_questions_limit, 0)>=0);
 drop policy if exists "settings admin update" on public.app_settings;
-create policy "settings admin update" on public.app_settings for update using(is_admin()) with check(is_admin() and price_ghs>0 and free_ai_limit>=0);
+create policy "settings admin update" on public.app_settings for update using(is_admin()) with check(is_admin() and price_ghs>0 and free_ai_limit>=0 and coalesce(free_questions_limit, 0)>=0);
 
 create or replace function public.consume_free_ai() returns jsonb language plpgsql security definer set search_path = public as $$
 declare
@@ -176,6 +188,89 @@ begin
   end if;
   update public.profiles set ai_uses = used + 1 where id=uid;
   return jsonb_build_object('allowed', true, 'unlimited', false, 'remaining', greatest(lim - (used + 1), 0), 'limit', lim);
+end $$;
+
+create or replace function public.open_past_question(qid uuid) returns jsonb language plpgsql security definer set search_path = public as $$
+declare
+  uid uuid := auth.uid();
+  lim int := 3;
+  prem timestamptz;
+  unlocked uuid[] := '{}';
+  used_count int := 0;
+  q_rec record;
+  q_body text;
+begin
+  if uid is null then raise exception 'Sign in first'; end if;
+  select coalesce(free_questions_limit, 3) into lim from public.app_settings where id=1;
+  lim := greatest(coalesce(lim, 3), 0);
+
+  select q.id, q.status, q.uploader, qc.content into q_rec
+  from public.questions q
+  left join public.question_content qc on qc.question_id = q.id
+  where q.id = qid;
+
+  if q_rec.id is null then
+    return jsonb_build_object('allowed', false, 'not_found', true, 'limit', lim, 'remaining', 0, 'used', 0);
+  end if;
+
+  if q_rec.status <> 'approved' and not public.is_admin() and q_rec.uploader <> uid then
+    return jsonb_build_object('allowed', false, 'limit', lim, 'remaining', 0, 'used', 0);
+  end if;
+
+  q_body := coalesce(q_rec.content, '');
+
+  if public.is_admin() or q_rec.uploader = uid then
+    return jsonb_build_object('allowed', true, 'unlimited', true, 'content', q_body, 'remaining', 9999, 'limit', lim, 'used', 0);
+  end if;
+
+  insert into public.profiles(id) values(uid) on conflict (id) do nothing;
+  select premium_until, coalesce(free_question_ids, '{}') into prem, unlocked
+  from public.profiles where id = uid for update;
+  unlocked := coalesce(unlocked, '{}');
+  used_count := coalesce(array_length(unlocked, 1), 0);
+
+  if prem is not null and prem > now() then
+    return jsonb_build_object('allowed', true, 'unlimited', true, 'content', q_body, 'remaining', 9999, 'limit', lim, 'used', used_count);
+  end if;
+
+  if qid = any(unlocked) then
+    return jsonb_build_object(
+      'allowed', true,
+      'unlimited', false,
+      'already_unlocked', true,
+      'content', q_body,
+      'used', used_count,
+      'remaining', greatest(lim - used_count, 0),
+      'limit', lim,
+      'free_question_ids', unlocked
+    );
+  end if;
+
+  if used_count >= lim then
+    return jsonb_build_object(
+      'allowed', false,
+      'unlimited', false,
+      'used', used_count,
+      'remaining', 0,
+      'limit', lim,
+      'free_question_ids', unlocked
+    );
+  end if;
+
+  unlocked := array_append(unlocked, qid);
+  update public.profiles set free_question_ids = unlocked where id = uid;
+  used_count := coalesce(array_length(unlocked, 1), 0);
+
+  return jsonb_build_object(
+    'allowed', true,
+    'unlimited', false,
+    'already_unlocked', false,
+    'content', q_body,
+    'used', used_count,
+    'remaining', greatest(lim - used_count, 0),
+    'limit', lim,
+    'free_question_ids', unlocked
+  );
 end $$;
 -- MAKE AN ADMIN (run in SQL editor with the user's id from Authentication > Users):
 -- insert into admins(user_id) values('PASTE-USER-UUID') on conflict (user_id) do nothing;

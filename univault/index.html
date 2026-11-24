@@ -1,5 +1,5 @@
 <!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><script>try{if(localStorage.getItem("uv_theme")==="light")document.documentElement.dataset.theme="light"}catch{}</script><title>UniVault — KNUST Past Questions &amp; Study Archive</title><meta name="theme-color" content="#09111e"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="UniVault"><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" type="image/png" href="/assets/knust-crest.png"><link rel="apple-touch-icon" sizes="180x180" href="/assets/apple-touch-icon.png"><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="landing.css"></head><body><div class="aura"><i></i><i></i><i></i></div><svg class="sym-defs" aria-hidden="true" width="0" height="0"><defs><linearGradient id="uv-sym-gold" x1="12%" y1="8%" x2="88%" y2="92%"><stop offset="0%" stop-color="var(--sym-gold-1)"/><stop offset="52%" stop-color="var(--sym-gold-2)"/><stop offset="100%" stop-color="var(--sym-gold-3)"/></linearGradient><linearGradient id="uv-sym-bright" x1="10%" y1="6%" x2="90%" y2="94%"><stop offset="0%" stop-color="var(--sym-bright-1)"/><stop offset="50%" stop-color="var(--sym-bright-2)"/><stop offset="100%" stop-color="var(--sym-bright-3)"/></linearGradient><linearGradient id="uv-sym-slate" x1="14%" y1="10%" x2="86%" y2="90%"><stop offset="0%" stop-color="var(--sym-slate-1)"/><stop offset="52%" stop-color="var(--sym-slate-2)"/><stop offset="100%" stop-color="var(--sym-slate-3)"/></linearGradient></defs></svg><div id="ghanaScene" class="scene symbol-field" aria-hidden="true"></div>
-<header><b class="logo"><img class="nav-crest" src="assets/knust-crest.png" alt="KNUST crest"><span>Uni<em>Vault</em></span></b><div class="hdr-actions"><button type="button" class="theme-toggle" data-theme-toggle aria-label="Switch to light mode" aria-pressed="false"></button><a class="cta g" href="signup.html?mode=in">Sign in</a></div></header>
+<header><b class="logo"><img class="nav-crest" src="assets/knust-crest.png" alt="KNUST crest"><span>Uni<em>Vault</em></span></b><div class="hdr-actions"><span id="homeProBadge" class="hdr-pro-badge" hidden aria-label="Pro subscriber" title="Pro subscription active"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M12 2l2.9 6.26L22 9.27l-5 4.87L18.18 22 12 18.56 5.82 22 7 14.14l-5-4.87 7.1-1.01L12 2z"/></svg><span>PRO</span></span><button type="button" class="theme-toggle" data-theme-toggle aria-label="Switch to light mode" aria-pressed="false"></button><a id="homeAuthLink" class="cta g" href="signup.html?mode=in">Sign in</a></div></header>
 <main>
 <div class="hero"><img class="crest" alt="KNUST crest" src="assets/knust-crest.png"><h1>Welcome to UniVault</h1><p>Every KNUST past question, sorted by department, course and year. Practise with an AI tutor that studies how your lecturers set questions, and earn GH₵3 for each question you upload.</p><a href="signup.html?mode=up">Get started</a><a class="cta g" href="#how">How it works</a><button type="button" class="cta g" data-pwa-install hidden>Install App</button></div>
 
@@ -120,14 +120,18 @@
     if(!data)return;
     const price=Number(data.price_ghs);
     const freeLim=Number(data.free_ai_limit);
+    const freeQLim=data.free_questions_limit!==undefined&&data.free_questions_limit!==null?Number(data.free_questions_limit):3;
     if(price>0){
       const pTxt=`GH₵${Number.isInteger(price)?price:price.toFixed(2)} / month`;
       if($("#homePriceHeading"))$("#homePriceHeading").textContent=pTxt;
       if($("#homeFootPrice"))$("#homeFootPrice").textContent=`Verified uploads · ${pTxt}`;
     }
-    if(Number.isFinite(freeLim)&&$("#homePriceCopy")){
-      $("#homePriceCopy").textContent=freeLim>0
-        ?`Full access to every question and unlimited AI tools (includes ${freeLim} free AI uses before Premium).`
+    if($("#homePriceCopy")){
+      const perks=[];
+      if(Number.isFinite(freeQLim)&&freeQLim>0)perks.push(`${freeQLim} free past paper${freeQLim===1?"":"s"}`);
+      if(Number.isFinite(freeLim)&&freeLim>0)perks.push(`${freeLim} free AI use${freeLim===1?"":"s"}`);
+      $("#homePriceCopy").textContent=perks.length
+        ?`Full access to every question and unlimited AI tools (includes ${perks.join(" and ")} before Pro).`
         :"Full access to every question and the AI tools.";
     }
   }
@@ -204,10 +208,14 @@
       }).catch(()=>{});
 
     sb.from("app_settings")
-      .select("price_ghs,free_ai_limit")
+      .select("price_ghs,free_ai_limit,free_questions_limit")
       .eq("id",1)
       .maybeSingle()
-      .then(({data})=>{
+      .then(async({data,error})=>{
+        if(error&&/free_questions_limit/i.test(error.message||"")){
+          const fb=await sb.from("app_settings").select("price_ghs,free_ai_limit").eq("id",1).maybeSingle();
+          data=fb?.data;
+        }
         if(!data)return;
         writePubCache({settings:data});
         applyHomeSettings(data);
@@ -222,6 +230,22 @@
         if(!Array.isArray(data)||data.length===0)return;
         writePubCache({testimonials:data});
         applyHomeTestimonials(data);
+      }).catch(()=>{});
+
+    sb.auth.getSession()
+      .then(async({data})=>{
+        const uid=data?.session?.user?.id;
+        if(!uid)return;
+        const link=$("#homeAuthLink");
+        if(link){link.href="app.html";link.textContent="Open App";}
+        const {data:prof}=await sb.from("profiles").select("premium_until").eq("id",uid).maybeSingle();
+        const badge=$("#homeProBadge");
+        if(badge&&prof?.premium_until&&new Date(prof.premium_until)>new Date()){
+          const until=new Date(prof.premium_until).toLocaleDateString();
+          badge.hidden=false;
+          badge.title=`Pro active until ${until}`;
+          badge.setAttribute("aria-label",`Pro active until ${until}`);
+        }
       }).catch(()=>{});
   }
 

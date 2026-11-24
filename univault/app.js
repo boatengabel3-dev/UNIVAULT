@@ -1,4 +1,4 @@
-let ALL_Q = [], Q = [], user = null, userProgramme = null, P = {}, hist = [], cur = null, quiz = [], myUploads = [], myPayouts = [], dashStatus = "all", activeAttachment = null, dupCheckTimer = null, isAdminUser = false, lastUploadBody = "", isUsingOfflineCache = false, appSettings = { price_ghs: Number(C.PRICE_GHS || 30), free_ai_limit: 5 };
+let ALL_Q = [], Q = [], user = null, userProgramme = null, P = {}, hist = [], cur = null, quiz = [], myUploads = [], myPayouts = [], dashStatus = "all", activeAttachment = null, dupCheckTimer = null, isAdminUser = false, lastUploadBody = "", isUsingOfflineCache = false, appSettings = { price_ghs: Number(C.PRICE_GHS || 30), free_ai_limit: 5, free_questions_limit: 3 };
 
 function getOfflineKey(kind) {
   const uid = user?.id || "anon";
@@ -294,28 +294,47 @@ function formatPriceGhs(v) {
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
 }
 
-function updatePricingAndQuotaUi(remainingOverride) {
+function updatePricingAndQuotaUi(remainingAiOverride, remainingQuestionsOverride) {
   const price = Number(appSettings.price_ghs);
   const effectivePrice = Number.isFinite(price) && price > 0 ? price : 30;
   C.PRICE_GHS = effectivePrice;
   const priceLabel = formatPriceGhs(effectivePrice);
 
   const freeLimit = Math.max(0, Math.floor(Number(appSettings.free_ai_limit ?? 5)));
+  const freeQuestionsLimit = Math.max(0, Math.floor(Number(appSettings.free_questions_limit ?? 3)));
   let remaining;
-  if (typeof remainingOverride === "number" && Number.isFinite(remainingOverride)) {
-    remaining = Math.max(0, remainingOverride);
+  if (typeof remainingAiOverride === "number" && Number.isFinite(remainingAiOverride)) {
+    remaining = Math.max(0, remainingAiOverride);
     P.ai_uses = Math.max(0, freeLimit - remaining);
   } else {
     remaining = Math.max(0, freeLimit - Number(P.ai_uses || 0));
   }
 
+  const unlockedCount = Array.isArray(P.free_question_ids) ? P.free_question_ids.length : 0;
+  let remainingQuestions;
+  if (typeof remainingQuestionsOverride === "number" && Number.isFinite(remainingQuestionsOverride)) {
+    remainingQuestions = Math.max(0, remainingQuestionsOverride);
+  } else {
+    remainingQuestions = Math.max(0, freeQuestionsLimit - unlockedCount);
+  }
+
+  if ($("#headerProBadge")) {
+    const isPro = Boolean(P.on);
+    $("#headerProBadge").hidden = !isPro;
+    if (isPro && P.premium_until) {
+      const until = new Date(P.premium_until).toLocaleDateString();
+      $("#headerProBadge").title = `Pro active until ${until}`;
+      $("#headerProBadge").setAttribute("aria-label", `Pro active until ${until}`);
+    }
+  }
+
   if ($("#badge")) {
     $("#badge").textContent = P.on
-      ? "Premium until " + new Date(P.premium_until).toLocaleDateString()
+      ? "Pro until " + new Date(P.premium_until).toLocaleDateString()
       : isAdminUser
         ? "Admin"
-        : freeLimit > 0
-          ? `Free · ${remaining} AI left`
+        : freeQuestionsLimit > 0 || freeLimit > 0
+          ? `Free · ${remainingQuestions} Q · ${remaining} AI left`
           : "Free";
   }
 
@@ -323,10 +342,33 @@ function updatePricingAndQuotaUi(remainingOverride) {
     $("#priceDisplay").innerHTML = `GH₵ ${esc(priceLabel)} <small>/ month</small>`;
   }
   if ($("#priceDesc")) {
-    $("#priceDesc").textContent =
-      freeLimit > 0
-        ? `Read every past question and enjoy unlimited AI tutor, predictions and quizzes. Free accounts include ${freeLimit} AI tutor use${freeLimit === 1 ? "" : "s"} before upgrading.`
-        : "Read every past question and enjoy unlimited AI tutor, predictions and quizzes.";
+    const parts = [];
+    if (freeQuestionsLimit > 0) {
+      parts.push(`${freeQuestionsLimit} free past question${freeQuestionsLimit === 1 ? "" : "s"}`);
+    }
+    if (freeLimit > 0) {
+      parts.push(`${freeLimit} free AI tutor use${freeLimit === 1 ? "" : "s"}`);
+    }
+    $("#priceDesc").textContent = parts.length
+      ? `Read every past question and enjoy unlimited AI tutor, predictions and quizzes. Free accounts include ${parts.join(" and ")} before upgrading to Pro.`
+      : "Read every past question and enjoy unlimited AI tutor, predictions and quizzes.";
+  }
+
+  const qQuotaEl = $("#questionsQuotaLabel");
+  if (qQuotaEl) {
+    if (P.on || isAdminUser) {
+      qQuotaEl.hidden = true;
+      qQuotaEl.textContent = "";
+    } else if (freeQuestionsLimit === 0) {
+      qQuotaEl.hidden = false;
+      qQuotaEl.textContent = `Free past paper reading is off — upgrade to Pro (GH₵${priceLabel}/month) to read full papers.`;
+    } else if (remainingQuestions > 0) {
+      qQuotaEl.hidden = false;
+      qQuotaEl.textContent = `Free tier: ${remainingQuestions} of ${freeQuestionsLimit} free past question${freeQuestionsLimit === 1 ? "" : "s"} left before Pro (already opened papers stay accessible).`;
+    } else {
+      qQuotaEl.hidden = false;
+      qQuotaEl.textContent = `Free past question limit reached (${freeQuestionsLimit}/${freeQuestionsLimit}). Upgrade to Pro (GH₵${priceLabel}/month) to read more papers.`;
+    }
   }
 
   const quotaEl = $("#aiQuotaLabel");
@@ -347,11 +389,18 @@ function updatePricingAndQuotaUi(remainingOverride) {
 
 async function refresh() {
   try {
-    const [profRes, settingsRes, adminRes] = await Promise.all([
+    const [profRes, adminRes] = await Promise.all([
       sb.from("profiles").select("*").single(),
-      sb.from("app_settings").select("price_ghs,free_ai_limit").eq("id", 1).maybeSingle(),
       sb.from("admins").select("user_id").eq("user_id", user.id).maybeSingle(),
     ]);
+    let settingsRes = await sb
+      .from("app_settings")
+      .select("price_ghs,free_ai_limit,free_questions_limit")
+      .eq("id", 1)
+      .maybeSingle();
+    if (settingsRes?.error && /free_questions_limit/i.test(settingsRes.error.message || "")) {
+      settingsRes = await sb.from("app_settings").select("price_ghs,free_ai_limit").eq("id", 1).maybeSingle();
+    }
     if (profRes.error && !profRes.data) throw profRes.error;
     P = profRes.data || {};
     P.on = P.premium_until && new Date(P.premium_until) > new Date();
@@ -363,6 +412,10 @@ async function refresh() {
           settingsRes.data.free_ai_limit !== null && settingsRes.data.free_ai_limit !== undefined
             ? Number(settingsRes.data.free_ai_limit)
             : 5,
+        free_questions_limit:
+          settingsRes.data.free_questions_limit !== null && settingsRes.data.free_questions_limit !== undefined
+            ? Number(settingsRes.data.free_questions_limit)
+            : 3,
       };
     }
 
@@ -807,24 +860,64 @@ async function openPaperById(id) {
 
   let content = null;
   let networkFailed = false;
+  let blockedReason = "";
+
   try {
-    const { data, error } = await sb
-      .from("question_content")
-      .select("content")
-      .eq("question_id", id)
-      .maybeSingle();
-    if (error) {
+    const { data: rpcData, error: rpcErr } = await sb.rpc("open_past_question", { qid: id });
+    if (!rpcErr && rpcData && typeof rpcData === "object") {
+      if (typeof rpcData.limit === "number") {
+        appSettings.free_questions_limit = rpcData.limit;
+      }
+      if (Array.isArray(rpcData.free_question_ids)) {
+        P.free_question_ids = rpcData.free_question_ids;
+      }
+      if (rpcData.allowed) {
+        content = typeof rpcData.content === "string" ? rpcData.content : "";
+        if (
+          !rpcData.unlimited &&
+          (!Array.isArray(P.free_question_ids) || !P.free_question_ids.includes(id))
+        ) {
+          P.free_question_ids = [...(Array.isArray(P.free_question_ids) ? P.free_question_ids : []), id];
+        }
+        if (content) {
+          saveOfflinePaper(cur, content);
+        }
+        updatePricingAndQuotaUi(undefined, rpcData.unlimited ? undefined : rpcData.remaining);
+        writeOfflineJson("meta", { P, isAdminUser, appSettings, myPayouts, myUploads });
+        render(false);
+      } else {
+        const lim = Number(rpcData.limit ?? appSettings.free_questions_limit ?? 3);
+        const used = Number(rpcData.used ?? lim);
+        updatePricingAndQuotaUi(undefined, 0);
+        blockedReason =
+          lim === 0
+            ? `Subscribe to Pro (GH₵${formatPriceGhs(C.PRICE_GHS)}/month) to read full past papers.`
+            : `You have reached your free limit of ${used} of ${lim} past question${lim === 1 ? "" : "s"}. Upgrade to Pro (GH₵${formatPriceGhs(C.PRICE_GHS)}/month) for unlimited access.`;
+      }
+    } else if (
+      rpcErr &&
+      !/could not find|pgrst202|open_past_question/i.test(rpcErr.message || "")
+    ) {
       networkFailed = true;
-    } else if (data?.content) {
-      content = data.content;
-      saveOfflinePaper(cur, content);
-      render(false);
+    } else {
+      const { data, error } = await sb
+        .from("question_content")
+        .select("content")
+        .eq("question_id", id)
+        .maybeSingle();
+      if (error) {
+        networkFailed = true;
+      } else if (data?.content) {
+        content = data.content;
+        saveOfflinePaper(cur, content);
+        render(false);
+      }
     }
   } catch {
     networkFailed = true;
   }
 
-  if (!content) {
+  if (!content && !blockedReason) {
     const cachedPaper = getOfflinePaper(id);
     if (cachedPaper?.content && (networkFailed || navigator.onLine === false)) {
       content = cachedPaper.content;
@@ -833,6 +926,7 @@ async function openPaperById(id) {
 
   cur.content = content;
   if (content) {
+    if ($("#pricingNotice")) $("#pricingNotice").hidden = true;
     $("#rb").textContent = content;
     $("#solve").hidden = false;
     if ($("#explainPaper")) $("#explainPaper").hidden = false;
@@ -849,10 +943,16 @@ async function openPaperById(id) {
     return;
   }
 
-  $("#rb").textContent = `Subscribe for GH₵${formatPriceGhs(C.PRICE_GHS)}/month to read this paper.`;
+  const noticeText =
+    blockedReason || `Subscribe for GH₵${formatPriceGhs(C.PRICE_GHS)}/month to read this paper.`;
+  if ($("#pricingNotice")) {
+    $("#pricingNotice").textContent = noticeText;
+    $("#pricingNotice").hidden = false;
+  }
+  $("#rb").textContent = noticeText;
   $("#solve").hidden = true;
-  if (!$("#reader").open) $("#reader").showModal();
-  $("#reader").close();
+  if ($("#reader").open) $("#reader").close();
+  syncUrlParams({ paper: null });
   show("pricing");
 }
 

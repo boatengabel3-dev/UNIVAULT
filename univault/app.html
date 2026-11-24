@@ -4,6 +4,7 @@
 <header class="app-header">
 <a href="#browse" id="brandHome" class="logo" style="text-decoration:none;color:inherit"><img class="nav-crest" src="assets/knust-crest.png" alt="KNUST"><span class="logo-knust">KNUST</span><span class="logo-sep" aria-hidden="true"></span><span>Uni<em>Vault</em></span></a>
 <span class="hdr-right">
+<span id="headerProBadge" class="hdr-pro-badge" hidden aria-label="Pro subscriber" title="Pro subscription active"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M12 2l2.9 6.26L22 9.27l-5 4.87L18.18 22 12 18.56 5.82 22 7 14.14l-5-4.87 7.1-1.01L12 2z"/></svg><span>PRO</span></span>
 <span id="activeViewLabel" class="active-view-label">Questions</span>
 <button type="button" class="theme-toggle" data-theme-toggle aria-label="Switch to light mode" aria-pressed="false"></button>
 <button id="menuBtn" type="button" class="menu-btn" aria-label="Open navigation menu" aria-expanded="false" aria-controls="navMenu"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg></button>
@@ -48,6 +49,7 @@
 <div class="filter-panel">
 <div class="bar"><select id="dep" aria-label="Filter by department"></select><input id="search" type="search" placeholder="Search course code, title, or year (e.g. MATH 151)" aria-label="Search past papers by course code or title"><button id="clearSearch" type="button" class="ghost" hidden>Clear</button></div>
 <p id="browseMeta" class="browse-meta"></p>
+<p id="questionsQuotaLabel" class="browse-meta" hidden style="margin-top:4px;color:var(--c)"></p>
 </div>
 <div id="list" class="grid"></div>
 </section>
@@ -140,7 +142,7 @@
 </div>
 </section>
 <section id="wallet" hidden><h1>Wallet</h1><div class="glass form"><h2 id="bal"></h2><input id="wn" placeholder="Mobile Money account name"><input id="wm" placeholder="Mobile Money number"><select id="wk"><option value="MTN">MTN</option><option value="VOD">Telecel</option><option value="ATL">AirtelTigo</option></select><button id="wd" type="button">Withdraw (min GH₵10)</button><div id="pays"></div></div></section>
-<section id="pricing" hidden><h1>Go Premium</h1><div class="glass price"><h2 id="priceDisplay">GH₵ 30 <small>/ month</small></h2><p id="priceDesc">Read every past question and enjoy unlimited AI tutor, predictions and quizzes.</p><button id="pay" type="button">Pay with Paystack</button></div></section>
+<section id="pricing" hidden><h1>Go Premium</h1><div class="glass price"><p id="pricingNotice" class="browse-meta" hidden style="margin:0 0 12px;color:var(--warn-ink)"></p><h2 id="priceDisplay">GH₵ 30 <small>/ month</small></h2><p id="priceDesc">Read every past question and enjoy unlimited AI tutor, predictions and quizzes.</p><button id="pay" type="button">Pay with Paystack</button></div></section>
 </main>
 <dialog id="reader"><h3 id="rt"></h3><pre id="rb"></pre><div class="bar"><button id="solve" type="button">Solve with AI</button><button id="explainPaper" type="button" class="ghost">Detailed Explanation</button><button type="button" class="ghost" onclick="reader.close()">Close</button></div></dialog>
 <dialog id="programmeDialog" class="programme-dialog">

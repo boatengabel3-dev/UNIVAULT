@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v19";
+const CACHE_VERSION = "v21";
 const STATIC_CACHE = `univault-static-${CACHE_VERSION}`;
 const DATA_CACHE = `univault-data-${CACHE_VERSION}`;
 const CDN_CACHE = `univault-cdn-${CACHE_VERSION}`;

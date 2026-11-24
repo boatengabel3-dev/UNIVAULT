@@ -115,7 +115,7 @@ $("#ovFilter").onclick = (e) => {
 };
 
 async function load() {
-  const [qRes, pRes, profRes, payRes, testRes, settingsRes] = await Promise.all([
+  const [qRes, pRes, profRes, payRes, testRes] = await Promise.all([
     sb
       .from("questions")
       .select("*,question_content(content)")
@@ -124,12 +124,30 @@ async function load() {
     sb.from("profiles").select("id,full_name,premium_until,balance"),
     sb.from("payments").select("reference,amount,created_at").order("created_at", { ascending: false }),
     sb.from("testimonials").select("*").order("created_at", { ascending: false }),
-    sb.from("app_settings").select("price_ghs,free_ai_limit").eq("id", 1).maybeSingle(),
   ]);
+  let settingsRes = await sb
+    .from("app_settings")
+    .select("price_ghs,free_ai_limit,free_questions_limit")
+    .eq("id", 1)
+    .maybeSingle();
+  if (settingsRes?.error && /free_questions_limit/i.test(settingsRes.error.message || "")) {
+    settingsRes = await sb.from("app_settings").select("price_ghs,free_ai_limit").eq("id", 1).maybeSingle();
+    if ($("#settingsMsg")) {
+      $("#settingsMsg").style.color = "var(--warn-ink)";
+      $("#settingsMsg").textContent = "Run the updated schema.sql to enable Free Past Questions Before Pro.";
+    }
+  }
 
   if (settingsRes?.data) {
     if ($("#setPriceGhs")) {
       $("#setPriceGhs").value = String(Number(settingsRes.data.price_ghs) || 30);
+    }
+    if ($("#setFreeQuestionsLimit")) {
+      $("#setFreeQuestionsLimit").value = String(
+        settingsRes.data.free_questions_limit !== null && settingsRes.data.free_questions_limit !== undefined
+          ? Number(settingsRes.data.free_questions_limit)
+          : 3
+      );
     }
     if ($("#setFreeAiLimit")) {
       $("#setFreeAiLimit").value = String(
@@ -272,12 +290,20 @@ if ($("#settingsForm")) {
     const msgEl = $("#settingsMsg");
     const btn = $("#saveSettingsBtn");
     const priceGhs = Number($("#setPriceGhs").value);
+    const freeQuestionsLimit = Math.floor(Number($("#setFreeQuestionsLimit")?.value ?? 3));
     const freeAiLimit = Math.floor(Number($("#setFreeAiLimit").value));
 
     if (!Number.isFinite(priceGhs) || priceGhs < 1) {
       if (msgEl) {
         msgEl.style.color = "var(--err-ink)";
         msgEl.textContent = "Subscription price must be at least GH₵ 1.";
+      }
+      return;
+    }
+    if (!Number.isFinite(freeQuestionsLimit) || freeQuestionsLimit < 0) {
+      if (msgEl) {
+        msgEl.style.color = "var(--err-ink)";
+        msgEl.textContent = "Free past questions must be 0 or greater.";
       }
       return;
     }
@@ -299,20 +325,21 @@ if ($("#settingsForm")) {
         id: 1,
         price_ghs: priceGhs,
         free_ai_limit: freeAiLimit,
+        free_questions_limit: freeQuestionsLimit,
         updated_at: new Date().toISOString(),
       });
       if (error) {
         if (msgEl) {
           msgEl.style.color = "var(--err-ink)";
-          msgEl.textContent = /app_settings/i.test(error.message)
-            ? "Run the new app_settings SQL in schema.sql first, then retry."
+          msgEl.textContent = /app_settings|free_questions_limit/i.test(error.message)
+            ? "Run the updated app_settings SQL in schema.sql first, then retry."
             : error.message;
         }
         return;
       }
       if (msgEl) {
         msgEl.style.color = "var(--ok-ink)";
-        msgEl.textContent = `Saved: GH₵${priceGhs}/month & ${freeAiLimit} free AI use${freeAiLimit === 1 ? "" : "s"} before Premium.`;
+        msgEl.textContent = `Saved: GH₵${priceGhs}/month, ${freeQuestionsLimit} free past question${freeQuestionsLimit === 1 ? "" : "s"}, and ${freeAiLimit} free AI use${freeAiLimit === 1 ? "" : "s"} before Pro.`;
       }
     } finally {
       if (btn) btn.disabled = false;

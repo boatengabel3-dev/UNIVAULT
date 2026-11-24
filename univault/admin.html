@@ -28,13 +28,14 @@
   <section id="av-overview">
     <div class="glass" style="margin-bottom:24px">
       <div class="dash-head" style="margin:0 0 12px">
-        <h2>Pricing &amp; Free AI Trial Settings</h2>
+        <h2>Pricing &amp; Free Tier Limits</h2>
         <span id="settingsMsg" style="font-size:.9rem;color:var(--c)"></span>
       </div>
-      <form id="settingsForm" class="two-col" style="align-items:end">
+      <form id="settingsForm" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;align-items:end">
         <label style="display:grid;gap:6px;font-size:.9rem;color:var(--mut)">Subscription Price (GH₵ / 30 days)<input id="setPriceGhs" type="number" min="1" step="0.5" value="30" required></label>
-        <label style="display:grid;gap:6px;font-size:.9rem;color:var(--mut)">Free AI Uses Before Premium<input id="setFreeAiLimit" type="number" min="0" max="500" step="1" value="5" required></label>
-        <button id="saveSettingsBtn" type="submit">Save Pricing &amp; Trial</button>
+        <label style="display:grid;gap:6px;font-size:.9rem;color:var(--mut)">Free Past Questions Before Pro<input id="setFreeQuestionsLimit" type="number" min="0" max="500" step="1" value="3" required></label>
+        <label style="display:grid;gap:6px;font-size:.9rem;color:var(--mut)">Free AI Uses Before Pro<input id="setFreeAiLimit" type="number" min="0" max="500" step="1" value="5" required></label>
+        <button id="saveSettingsBtn" type="submit">Save Pricing &amp; Limits</button>
       </form>
     </div>
     <div class="two-col">
