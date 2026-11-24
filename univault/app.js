@@ -748,8 +748,40 @@ function render(syncUrl = true) {
   window.uvRevealObserve?.($("#list"), { fresh: Boolean(syncUrl) });
 }
 
-$("#dep").onchange = $("#search").oninput = () => render(true);
+function debounceSearch(fn, wait = 260) {
+  let timer = null;
+  const debounced = (...args) => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      fn(...args);
+    }, wait);
+  };
+  debounced.cancel = () => {
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+  };
+  return debounced;
+}
+const debouncedArchiveRender = debounceSearch(() => render(true), 260);
+$("#dep").onchange = () => {
+  debouncedArchiveRender.cancel();
+  render(true);
+};
+$("#search").oninput = () => {
+  $("#clearSearch").hidden = !$("#dep").value && !$("#search").value.trim();
+  debouncedArchiveRender();
+};
+$("#search").onkeydown = (e) => {
+  if (e.key === "Enter") {
+    debouncedArchiveRender.cancel();
+    render(true);
+  }
+};
 $("#clearSearch").onclick = () => {
+  debouncedArchiveRender.cancel();
   $("#dep").value = "";
   $("#search").value = "";
   render(true);
@@ -1143,7 +1175,7 @@ async function ai(body, onChunk, onStatus) {
           throw err;
         }
         if (ev.type === "ping") {
-          if (!hasDelta && !slowNotified && Date.now() - startedAt > 7500) {
+          if (!hasDelta && !slowNotified && Date.now() - startedAt > 3500) {
             slowNotified = true;
             onStatus?.("Analyzing course notes and formulating your answer...");
           }
@@ -1645,6 +1677,16 @@ async function ask(text) {
   hist.push({ role: "user", content: text });
   const w = bub("", "a", { typing: true, typingLabel: "Thinking..." });
   setAiBusy(true);
+  let pendingPartial = "";
+  let chunkRaf = 0;
+  const flushPartial = () => {
+    chunkRaf = 0;
+    if (!pendingPartial) return;
+    setBubbleTyping(w, false);
+    setBubbleText(w, pendingPartial);
+    const logEl = $("#log");
+    if (logEl) logEl.scrollTop = logEl.scrollHeight;
+  };
   try {
     const r = await ai(
       {
@@ -1656,15 +1698,21 @@ async function ask(text) {
       },
       (partial) => {
         if (!partial) return;
-        setBubbleTyping(w, false);
-        setBubbleText(w, partial);
-        const logEl = $("#log");
-        if (logEl) logEl.scrollTop = logEl.scrollHeight;
+        pendingPartial = partial;
+        if (!chunkRaf && typeof requestAnimationFrame === "function") {
+          chunkRaf = requestAnimationFrame(flushPartial);
+        } else if (!chunkRaf) {
+          flushPartial();
+        }
       },
       (statusMsg) => {
         setBubbleTyping(w, true, statusMsg);
       }
     );
+    if (chunkRaf && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(chunkRaf);
+      chunkRaf = 0;
+    }
     const clean = String(r || "").trim();
     setBubbleTyping(w, false);
     if (!clean) {
@@ -1679,6 +1727,10 @@ async function ask(text) {
     const logEl = $("#log");
     if (logEl) logEl.scrollTop = logEl.scrollHeight;
   } catch (e) {
+    if (chunkRaf && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(chunkRaf);
+      chunkRaf = 0;
+    }
     hist.pop();
     showAiErrorInBubble(w, e, () => ask(text));
   } finally {
@@ -1694,6 +1746,16 @@ async function requestDetailedExplanation(targetQuestion, inlineContext = "") {
   bub(userLabel, "u");
   const w = bub("", "a", { typing: true, typingLabel: "Preparing detailed explanation..." });
   setAiBusy(true);
+  let pendingPartial = "";
+  let chunkRaf = 0;
+  const flushPartial = () => {
+    chunkRaf = 0;
+    if (!pendingPartial) return;
+    setBubbleTyping(w, false);
+    setBubbleText(w, pendingPartial);
+    const logEl = $("#log");
+    if (logEl) logEl.scrollTop = logEl.scrollHeight;
+  };
   try {
     const context = inlineContext || buildAttachmentContext();
     const r = await ai(
@@ -1706,15 +1768,21 @@ async function requestDetailedExplanation(targetQuestion, inlineContext = "") {
       },
       (partial) => {
         if (!partial) return;
-        setBubbleTyping(w, false);
-        setBubbleText(w, partial);
-        const logEl = $("#log");
-        if (logEl) logEl.scrollTop = logEl.scrollHeight;
+        pendingPartial = partial;
+        if (!chunkRaf && typeof requestAnimationFrame === "function") {
+          chunkRaf = requestAnimationFrame(flushPartial);
+        } else if (!chunkRaf) {
+          flushPartial();
+        }
       },
       (statusMsg) => {
         setBubbleTyping(w, true, statusMsg);
       }
     );
+    if (chunkRaf && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(chunkRaf);
+      chunkRaf = 0;
+    }
     const clean = String(r || "").trim();
     setBubbleTyping(w, false);
     if (!clean) {
@@ -2191,8 +2259,15 @@ $("#usub").onclick = async () => {
     }
 
     const descr = $("#udescr") ? $("#udescr").value.trim() : "";
-    let { error } = await sb.rpc("submit_question", descr ? { ...payload, descr } : payload);
-    if (error && descr && /submit_question/i.test(error.message)) {
+    let { error } = await sb.rpc("submit_question", {
+      ...payload,
+      descr: descr || null,
+    });
+    if (
+      error &&
+      !/could not choose/i.test(error.message || "") &&
+      /could not find the function|pgrst202|descr/i.test(error.message || "")
+    ) {
       ({ error } = await sb.rpc("submit_question", payload));
     }
     if (error) {

@@ -81,6 +81,7 @@ begin
   return jsonb_build_object('duplicate', false);
 end $$;
 
+drop function if exists public.submit_question(text,text,text,int,int,text);
 create or replace function submit_question(d text,c text,t text,y int,s int,body text,descr text default null) returns void language plpgsql security definer set search_path = public as $$
 declare
   qid uuid;
@@ -100,6 +101,7 @@ begin
   insert into public.question_content(question_id,content,content_hash) values(qid,clean_body,public.normalize_body_hash(clean_body));
 end $$;
 
+drop function if exists public.admin_publish_question(text,text,text,int,int,text);
 create or replace function admin_publish_question(d text,c text,t text,y int,s int,body text,descr text default null) returns uuid language plpgsql security definer set search_path = public as $$
 declare
   qid uuid;

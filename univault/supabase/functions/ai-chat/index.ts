@@ -1,5 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { GoogleGenAI, Type } from "npm:@google/genai@^3.6.1";
+import { GoogleGenAI, ThinkingLevel, Type } from "npm:@google/genai@^3.6.1";
 
 const cors = {
   "Access-Control-Allow-Origin": "*",
@@ -37,7 +37,7 @@ Deno.serve(async (req) => {
       targetQuestion = "",
     } = await req.json();
 
-    const cleanAttachment = String(attachmentContext || "").trim().slice(0, 45000);
+    const cleanAttachment = String(attachmentContext || "").trim().slice(0, 18000);
     const [{ data: p }, { data: adm }, { data: settings }] = await Promise.all([
       sb.from("profiles").select("*").eq("id", user.id).single(),
       sb.from("admins").select("user_id").eq("user_id", user.id).maybeSingle(),
@@ -75,7 +75,7 @@ Deno.serve(async (req) => {
         .eq("course_code", course)
         .eq("status", "approved")
         .order("year", { ascending: false })
-        .limit(15);
+        .limit(5);
       qs = r.data || [];
     }
 
@@ -88,7 +88,7 @@ Deno.serve(async (req) => {
       })
       .filter(Boolean)
       .join("\n\n")
-      .slice(0, 40000);
+      .slice(0, 9000);
 
     const attachedBlock = cleanAttachment
       ? `\n\nStudent-uploaded study material / transcript:\n${cleanAttachment}\n`
@@ -125,7 +125,7 @@ Deno.serve(async (req) => {
         contents: `Generate ${count} multiple-choice questions.`,
         config: {
           systemInstruction,
-          temperature: 0.65,
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.ARRAY,
@@ -158,7 +158,10 @@ Deno.serve(async (req) => {
       const response = await ai.models.generateContent({
         model: "gemini-4-hydrogen",
         contents: prompt,
-        config: { systemInstruction, temperature: 0.75 },
+        config: {
+          systemInstruction,
+          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+        },
       });
       return json({
         text: response.text ?? "",
@@ -181,6 +184,9 @@ Deno.serve(async (req) => {
         cleaned.push({ role, text });
       }
     }
+    if (cleaned.length > 10) {
+      cleaned.splice(0, cleaned.length - 10);
+    }
     while (cleaned.length > 0 && cleaned[0].role === "model") {
       cleaned.shift();
     }
@@ -191,7 +197,10 @@ Deno.serve(async (req) => {
     const response = await ai.models.generateContent({
       model: "gemini-4-hydrogen",
       contents,
-      config: { systemInstruction, temperature: 0.75 },
+      config: {
+        systemInstruction,
+        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+      },
     });
 
     return json({

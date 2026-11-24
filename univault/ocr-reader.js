@@ -102,8 +102,8 @@
     const natW = img.naturalWidth || img.width || 1000;
     const natH = img.naturalHeight || img.height || 1000;
 
-    // 1. High-contrast grayscale canvas for OCR accuracy
-    const ocrScale = natW < 1200 ? Math.min(2.2, 1400 / natW) : Math.min(1, 2400 / natW);
+    // 1. High-contrast grayscale canvas for OCR accuracy (capped at 1500px for speed)
+    const ocrScale = natW < 1000 ? Math.min(1.8, 1200 / natW) : Math.min(1, 1500 / natW);
     const ocrCanvas = document.createElement("canvas");
     ocrCanvas.width = Math.max(1, Math.round(natW * ocrScale));
     ocrCanvas.height = Math.max(1, Math.round(natH * ocrScale));
@@ -272,7 +272,7 @@
       if (alphaLen < 30) {
         try {
           onStatus?.(`Scanned PDF page ${i}/${total} detected — running OCR...`);
-          const viewport = page.getViewport({ scale: 2.0 });
+          const viewport = page.getViewport({ scale: 1.6 });
           const canvas = document.createElement("canvas");
           canvas.width = Math.max(1, Math.round(viewport.width));
           canvas.height = Math.max(1, Math.round(viewport.height));

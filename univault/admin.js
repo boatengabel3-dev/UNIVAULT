@@ -618,7 +618,17 @@ $("#adminUploadForm").onsubmit = async (e) => {
       s: payload.s,
       body: payload.body,
     };
-    const subRes = await sb.rpc("submit_question", subPayload);
+    let subRes = await sb.rpc("submit_question", {
+      ...subPayload,
+      descr: payload.descr ?? null,
+    });
+    if (
+      subRes.error &&
+      !/could not choose/i.test(subRes.error.message || "") &&
+      /could not find the function|pgrst202|descr/i.test(subRes.error.message || "")
+    ) {
+      subRes = await sb.rpc("submit_question", subPayload);
+    }
     error = subRes.error;
     if (!error) {
       const { data: latest } = await sb

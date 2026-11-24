@@ -79,8 +79,14 @@ function normalizeChatMessages(
     }
   }
 
-  if (cleaned.length > 14) {
-    cleaned.splice(0, cleaned.length - 14);
+  if (cleaned.length > 10) {
+    cleaned.splice(0, cleaned.length - 10);
+  }
+
+  for (let i = 0; i < cleaned.length - 1; i++) {
+    if (cleaned[i].text.length > 2500) {
+      cleaned[i].text = cleaned[i].text.slice(0, 2500) + '...';
+    }
   }
 
   while (cleaned.length > 0 && cleaned[0].role === 'model') {
@@ -100,6 +106,12 @@ function normalizeChatMessages(
 const PRIMARY_TEXT_MODEL = 'gemini-4-hydrogen';
 const BACKUP_TEXT_MODEL = 'gemini-3.1-flash-lite';
 const TEXT_MODELS = [PRIMARY_TEXT_MODEL, BACKUP_TEXT_MODEL];
+
+function thinkingConfigFor(model: string) {
+  return {
+    thinkingLevel: model === BACKUP_TEXT_MODEL ? ThinkingLevel.MINIMAL : ThinkingLevel.LOW,
+  };
+}
 
 function extractNestedErrorDetails(raw: string): { code?: number; status?: string; message?: string } {
   let current = String(raw || '').trim();
@@ -203,12 +215,12 @@ async function callGeminiWithRetry<T>(
   fn: (model: string) => Promise<T>,
   models: string[] = TEXT_MODELS
 ): Promise<T> {
-  const delays = [650, 1450];
+  const delays = [350];
   let lastErr: unknown;
 
   for (let mIdx = 0; mIdx < models.length; mIdx++) {
     const model = models[mIdx];
-    const maxRetries = mIdx === 0 ? delays.length : 1;
+    const maxRetries = mIdx === 0 ? delays.length : 0;
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
         return await fn(model);
@@ -219,7 +231,7 @@ async function callGeminiWithRetry<T>(
         }
         if (attempt < maxRetries) {
           const base = delays[Math.min(attempt, delays.length - 1)];
-          const jitter = Math.floor(Math.random() * 250);
+          const jitter = Math.floor(Math.random() * 150);
           await new Promise((r) => setTimeout(r, base + jitter));
         }
       }
@@ -257,22 +269,32 @@ export interface PreparedAiChat {
   freeLimit: number;
 }
 
+const COURSE_BANK_CACHE_TTL_MS = 5 * 60 * 1000;
+const courseBankCache = new Map<string, { text: string; expiresAt: number }>();
+
 async function fetchCourseBank(opts: {
   supabaseUrl: string;
   supabaseAnonKey: string;
   token: string;
   course: string;
+  maxChars?: number;
 }): Promise<string> {
   if (!opts.course) return '';
+  const maxChars = opts.maxChars ?? 6500;
+  const cacheKey = `${opts.supabaseUrl}::${opts.course}`;
+  const cached = courseBankCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.text.slice(0, maxChars);
+  }
   try {
     const qRes = await fetch(
-      `${opts.supabaseUrl}/rest/v1/questions?course_code=eq.${encodeURIComponent(opts.course)}&status=eq.approved&select=year,semester,question_content(content)&order=year.desc&limit=6`,
+      `${opts.supabaseUrl}/rest/v1/questions?course_code=eq.${encodeURIComponent(opts.course)}&status=eq.approved&select=year,semester,question_content(content)&order=year.desc&limit=5`,
       {
         headers: {
           apikey: opts.supabaseAnonKey,
           Authorization: `Bearer ${opts.token}`,
         },
-        signal: AbortSignal.timeout(5000),
+        signal: AbortSignal.timeout(4000),
       }
     );
     if (!qRes.ok) return '';
@@ -282,7 +304,7 @@ async function fetchCourseBank(opts: {
       question_content?: { content?: string } | Array<{ content?: string }> | null;
     }>;
     if (!Array.isArray(parsed)) return '';
-    return parsed
+    const fullText = parsed
       .map((q) => {
         const qc = Array.isArray(q.question_content)
           ? q.question_content[0]?.content
@@ -291,7 +313,16 @@ async function fetchCourseBank(opts: {
       })
       .filter(Boolean)
       .join('\n\n')
-      .slice(0, 12000);
+      .slice(0, 10000);
+    if (courseBankCache.size >= 100) {
+      const oldestKey = courseBankCache.keys().next().value;
+      if (oldestKey) courseBankCache.delete(oldestKey);
+    }
+    courseBankCache.set(cacheKey, {
+      text: fullText,
+      expiresAt: Date.now() + COURSE_BANK_CACHE_TTL_MS,
+    });
+    return fullText.slice(0, maxChars);
   } catch {
     return '';
   }
@@ -303,8 +334,14 @@ export async function prepareAiChat(opts: AiChatInput): Promise<PreparedAiChat> 
   const programme = String(opts.programme || '').trim();
   const count = Math.min(20, Math.max(1, Number(opts.count) || 5));
   const instructions = String(opts.instructions || '').trim();
-  const cleanAttachment = String(opts.attachmentContext || '').trim().slice(0, 24000);
+  const cleanAttachment = String(opts.attachmentContext || '').trim().slice(0, 18000);
   const targetQuestion = String(opts.targetQuestion || '').trim();
+  const contents = normalizeChatMessages(opts.messages);
+  const lastUserMsg = contents[contents.length - 1]?.parts?.[0]?.text || '';
+  const needsDeepBank =
+    mode === 'quiz' || /predict|past\s*paper|exam|recurring|trend|lecturer/i.test(lastUserMsg);
+  const bankLimitChars =
+    mode === 'explain' && targetQuestion ? 2500 : needsDeepBank ? 9500 : 5500;
 
   const [quota, bank] = await Promise.all([
     checkAndConsumeAiQuota({
@@ -318,6 +355,7 @@ export async function prepareAiChat(opts: AiChatInput): Promise<PreparedAiChat> 
       supabaseAnonKey: opts.supabaseAnonKey,
       token: opts.token,
       course,
+      maxChars: bankLimitChars,
     }),
   ]);
 
@@ -334,37 +372,33 @@ export async function prepareAiChat(opts: AiChatInput): Promise<PreparedAiChat> 
 
   const ai = createGeminiClient(opts.apiKey);
   const attachedBlock = cleanAttachment
-    ? `\n\nStudent-uploaded study material / transcript:\n${cleanAttachment}\n`
+    ? `\n\nUploaded material:\n${cleanAttachment}\n`
     : '';
 
   const contextBits = [
-    programme ? `Student programme: ${programme}.` : '',
-    course ? `Selected course: ${course}.` : '',
+    programme ? `Programme: ${programme}.` : '',
+    course ? `Course: ${course}.` : '',
   ]
     .filter(Boolean)
     .join(' ');
 
-  let systemInstruction = `You are a sharp, down-to-earth KNUST senior student and Teaching Assistant helping a coursemate prep for exams.${contextBits ? ` ${contextBits}` : ''}${bank ? `\nPast questions on file:\n\n${bank}` : ''}${attachedBlock}\n`;
+  let systemInstruction = `You are a sharp, down-to-earth KNUST senior student and TA helping a coursemate prep for exams.${contextBits ? ` ${contextBits}` : ''}${bank ? `\nPast questions:\n${bank}` : ''}${attachedBlock}\n`;
 
   const voiceRules = [
-    'Sound like a real person talking through study notes at a library table—natural, direct, and easy to follow.',
-    'Use everyday contractions (don\'t, it\'s, you\'ll, won\'t) and vary sentence length. Talk to the student directly ("Look at what the question gives you...", "Here\'s the catch most people miss...", "Once you spot that...").',
-    'Start straight with the answer or idea. Never open with filler like "Certainly!", "Sure!", "Of course!", "Great question!", "Here is a breakdown:", "Let\'s break this down:", or "Understanding X is crucial".',
-    'Stop cleanly once you\'ve answered. Never add robotic sign-offs like "In conclusion,", "To summarize,", "Hope this helps!", "Feel free to ask!", or "Let me know if you need anything else!".',
-    'Write in natural flowing paragraphs first instead of turning everything into ### headings and **Bold Label:** colon bullet lists. Only use short steps or plain bullets when working a calculation or listing a few distinct exam traps—and never prefix every bullet with a bolded label and colon.',
-    'Avoid stiff AI vocabulary: never use "delve", "crucial", "pivotal", "comprehensive", "multifaceted", "nuanced", "landscape", "underscores", "testament", "leverage", "moreover", "furthermore", "additionally", or "it is important to note". Use plain words instead.',
-    'Never use emojis, and write math cleanly with normal symbols (×, ÷, √, ±, ^2, a / b) rather than raw LaTeX ($...$, \\frac).',
-    'Style check — avoid textbook stiffness like "### Core Concept\\n**Ohm\'s Law** is a fundamental principle that plays a crucial role...". Write naturally like: "Ohm\'s Law just means voltage and current move together proportionally when resistance stays constant (V = IR). In past papers here, the easy trap is forgetting to convert mA to A before multiplying."',
+    "Write naturally like explaining notes at a library table—use contractions (don't, it's, you'll) and speak directly to the student.",
+    'Start straight with the answer (no "Certainly!", "Sure!", "Great question!", or "In conclusion" / "Hope this helps!" sign-offs).',
+    'Prefer flowing paragraphs first; use short numbered steps or plain bullets only for worked calculations or distinct exam traps.',
+    'Avoid stiff AI buzzwords ("delve", "crucial", "pivotal", "comprehensive", "moreover", "furthermore") and emojis. Write math with plain symbols (×, ÷, √, ±, ^2, a / b) instead of LaTeX.',
   ].join('\n- ');
 
   if (mode === 'quiz') {
-    systemInstruction += `Write ${count} multiple-choice questions in the style of these materials. Keep explanations crisp and human (1–2 direct sentences). Extra instructions: ${instructions || 'none'}.`;
+    systemInstruction += `Write ${count} multiple-choice questions matching these materials. Keep explanations crisp (1-2 direct sentences). Extra instructions: ${instructions || 'none'}.`;
   } else if (mode === 'explain') {
     systemInstruction +=
-      `How to reply:\n- ${voiceRules}\nWalk through the question or material the way a good TA would: give the main idea in plain language, work through the steps cleanly with units and formulas, point out why a tricky step works as you go, and mention any real exam trap lecturers mark down.`;
+      `Style:\n- ${voiceRules}\nGive the main idea in plain language, work through steps cleanly with units/formulas, explain tricky steps, and call out exam traps.`;
   } else {
     systemInstruction +=
-      `How to reply:\n- ${voiceRules}\nAnswer concisely for quick questions, show clear worked steps for calculations or derivations, and dig deeper when asked about a past paper or uploaded file. When asked to predict exam questions, weigh recurring topics, mark weighting, question phrasing, and lecturer habits across years, and make clear these are informed estimates rather than guarantees.`;
+      `Style:\n- ${voiceRules}\nBe concise for quick questions, show clear worked steps for calculations, and base exam predictions on recurring topics and mark patterns (noting they are estimates).`;
   }
 
   return {
@@ -374,7 +408,7 @@ export async function prepareAiChat(opts: AiChatInput): Promise<PreparedAiChat> 
     instructions,
     targetQuestion,
     systemInstruction,
-    contents: normalizeChatMessages(opts.messages),
+    contents,
     freeRemaining: quota.freeRemaining,
     freeLimit: quota.freeLimit,
   };
@@ -394,8 +428,7 @@ export async function runAiChat(opts: AiChatInput): Promise<{
         contents: `Generate ${prep.count} multiple-choice questions.`,
         config: {
           systemInstruction: prep.systemInstruction,
-          temperature: 0.65,
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          thinkingConfig: thinkingConfigFor(model),
           responseMimeType: 'application/json',
           responseSchema: {
             type: Type.ARRAY,
@@ -430,8 +463,7 @@ export async function runAiChat(opts: AiChatInput): Promise<{
         contents: prompt,
         config: {
           systemInstruction: prep.systemInstruction,
-          temperature: 0.75,
-          thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+          thinkingConfig: thinkingConfigFor(model),
         },
       })
     );
@@ -448,8 +480,7 @@ export async function runAiChat(opts: AiChatInput): Promise<{
       contents: prep.contents,
       config: {
         systemInstruction: prep.systemInstruction,
-        temperature: 0.75,
-        thinkingConfig: { thinkingLevel: ThinkingLevel.LOW },
+        thinkingConfig: thinkingConfigFor(model),
       },
     })
   );
@@ -491,7 +522,7 @@ export async function* streamAiChat(
 
   for (let mIdx = 0; mIdx < TEXT_MODELS.length; mIdx++) {
     const model = TEXT_MODELS[mIdx];
-    const maxAttempts = mIdx === 0 ? 2 : 1;
+    const maxAttempts = mIdx === 0 ? 1 : 0;
 
     for (let attempt = 0; attempt <= maxAttempts; attempt++) {
       if (isAborted?.()) return;
@@ -501,10 +532,7 @@ export async function* streamAiChat(
           contents,
           config: {
             systemInstruction: prep.systemInstruction,
-            temperature: 0.75,
-            thinkingConfig: {
-              thinkingLevel: ThinkingLevel.LOW,
-            },
+            thinkingConfig: thinkingConfigFor(model),
           },
         });
 
@@ -548,7 +576,7 @@ export async function* streamAiChat(
         }
         yield { type: 'ping' };
         if (attempt < maxAttempts) {
-          const waitMs = (attempt === 0 ? 700 : 1400) + Math.floor(Math.random() * 250);
+          const waitMs = 350 + Math.floor(Math.random() * 150);
           await new Promise((r) => setTimeout(r, waitMs));
         }
       }
@@ -568,6 +596,7 @@ export async function* streamAiChat(
 }
 
 const memoryFreeAiUsage = new Map<string, number>();
+let consumeRpcAvailable: boolean | null = null;
 
 export async function checkAndConsumeAiQuota(opts: {
   supabaseUrl: string;
@@ -587,38 +616,43 @@ export async function checkAndConsumeAiQuota(opts: {
   };
 
   // Try atomic DB RPC first (enforces admin/premium + consumes free trial quota across devices)
-  try {
-    const rpcRes = await fetch(`${opts.supabaseUrl}/rest/v1/rpc/consume_free_ai`, {
-      method: 'POST',
-      headers: {
-        ...headers,
-        'Content-Type': 'application/json',
-      },
-      body: '{}',
-      signal: AbortSignal.timeout(7000),
-    });
-    if (rpcRes.ok) {
-      const rpc = (await rpcRes.json()) as {
-        allowed?: boolean;
-        unlimited?: boolean;
-        remaining?: number;
-        limit?: number;
-      } | null;
-      if (rpc && typeof rpc.allowed === 'boolean') {
-        const limit = Number(rpc.limit ?? 5);
-        const remaining = rpc.unlimited ? null : Number(rpc.remaining ?? 0);
-        return {
-          allowed: rpc.allowed,
-          unlimited: Boolean(rpc.unlimited),
-          freeRemaining: remaining,
-          freeLimit: limit,
-          error: rpc.allowed
-            ? undefined
-            : `Free AI trial limit reached (${limit} uses). Upgrade to Premium to continue.`,
-        };
+  if (consumeRpcAvailable !== false) {
+    try {
+      const rpcRes = await fetch(`${opts.supabaseUrl}/rest/v1/rpc/consume_free_ai`, {
+        method: 'POST',
+        headers: {
+          ...headers,
+          'Content-Type': 'application/json',
+        },
+        body: '{}',
+        signal: AbortSignal.timeout(5000),
+      });
+      if (rpcRes.status === 404) {
+        consumeRpcAvailable = false;
+      } else if (rpcRes.ok) {
+        consumeRpcAvailable = true;
+        const rpc = (await rpcRes.json()) as {
+          allowed?: boolean;
+          unlimited?: boolean;
+          remaining?: number;
+          limit?: number;
+        } | null;
+        if (rpc && typeof rpc.allowed === 'boolean') {
+          const limit = Number(rpc.limit ?? 5);
+          const remaining = rpc.unlimited ? null : Number(rpc.remaining ?? 0);
+          return {
+            allowed: rpc.allowed,
+            unlimited: Boolean(rpc.unlimited),
+            freeRemaining: remaining,
+            freeLimit: limit,
+            error: rpc.allowed
+              ? undefined
+              : `Free AI trial limit reached (${limit} uses). Upgrade to Premium to continue.`,
+          };
+        }
       }
-    }
-  } catch {}
+    } catch {}
+  }
 
   // Fallback when consume_free_ai RPC is not yet installed in Supabase SQL Editor
   const [profRes, admRes, setRes] = await Promise.all([
@@ -1253,6 +1287,7 @@ export async function processUploadedMaterial(opts: {
         model,
         contents: `Analyze this transcribed university lecture/past-question audio (${opts.fileName}):\n\n${transcript}`,
         config: {
+          thinkingConfig: thinkingConfigFor(model),
           systemInstruction:
             'You are a KNUST academic archivist. Organize the spoken transcript into clean readable text (preserving all questions and formulas), summarize key points, list distinct questions detected, and extract metadata (department, course_code, course_title, year, semester, description) only if mentioned in the audio (otherwise leave empty/0).',
           responseMimeType: 'application/json',
@@ -1281,6 +1316,7 @@ export async function processUploadedMaterial(opts: {
             ],
           },
           config: {
+            thinkingConfig: thinkingConfigFor(model),
             responseMimeType: 'application/json',
             responseSchema: {
               type: Type.OBJECT,
@@ -1320,6 +1356,7 @@ export async function processUploadedMaterial(opts: {
               ],
             },
             config: {
+              thinkingConfig: thinkingConfigFor(model),
               responseMimeType: 'application/json',
               responseSchema: STRUCTURED_SCHEMA,
             },
@@ -1335,6 +1372,7 @@ export async function processUploadedMaterial(opts: {
           model,
           contents: `Client-side extracted / OCR text from "${opts.fileName}":\n\n${preprocessed.slice(0, 80000)}`,
           config: {
+            thinkingConfig: thinkingConfigFor(model),
             systemInstruction:
               'You are a KNUST academic archivist. Clean up any OCR line-break or spelling artifacts while keeping all examination questions, numbering, mark allocations, and equations intact in "cleanedText", list each distinct question in "questionsDetected", write a concise "summary", and extract metadata (department, course_code, course_title, year, semester, description) if present.',
             responseMimeType: 'application/json',
@@ -1375,6 +1413,7 @@ export async function processUploadedMaterial(opts: {
         model,
         contents: `Extracted raw content from "${opts.fileName}":\n\n${rawText.slice(0, 80000)}`,
         config: {
+          thinkingConfig: thinkingConfigFor(model),
           systemInstruction:
             'You are a KNUST academic archivist. Clean and format all questions, slides, and notes from the uploaded document into "cleanedText" without omitting questions or equations, extract individual questions into "questionsDetected", write a concise "summary", and extract metadata (department, course_code, course_title, year, semester, description) if present.',
           responseMimeType: 'application/json',

@@ -164,8 +164,28 @@
     listEl.innerHTML=matches.map(c=>`<article class="card archive-card uv-reveal"><small>${esc(c.department)}</small><h3>${esc(c.course_code)}<span>${esc(c.course_title||"Past Examination Papers")}</span></h3><div class="chips">${c.papers.map(p=>`<a class="chip-link" href="${p.id?`signup.html?next=${encodeURIComponent("app.html?paper="+p.id)}`:"signup.html"}">${p.year}${p.semester?" S"+p.semester:""}</a>`).join("")}</div></article>`).join("")||'<p class="search-empty">No past papers match that course code or title.</p>';
     window.uvRevealObserve?.(listEl);
   }
-  depEl.onchange=qEl.oninput=()=>renderHome(true);
-  clrEl.onclick=()=>{depEl.value="";qEl.value="";renderHome(true);qEl.focus()};
+  function debounce(fn,wait=260){
+    let timer=null;
+    const debounced=(...args)=>{
+      if(timer)clearTimeout(timer);
+      timer=setTimeout(()=>{timer=null;fn(...args);},wait);
+    };
+    debounced.cancel=()=>{if(timer){clearTimeout(timer);timer=null;}};
+    return debounced;
+  }
+  const debouncedHomeSearch=debounce(()=>renderHome(true),260);
+  depEl.onchange=()=>{debouncedHomeSearch.cancel();renderHome(true);};
+  qEl.oninput=()=>{
+    clrEl.hidden=!depEl.value&&!qEl.value.trim();
+    debouncedHomeSearch();
+  };
+  qEl.onkeydown=(e)=>{
+    if(e.key==="Enter"){
+      debouncedHomeSearch.cancel();
+      renderHome(true);
+    }
+  };
+  clrEl.onclick=()=>{debouncedHomeSearch.cancel();depEl.value="";qEl.value="";renderHome(true);qEl.focus()};
   const cachedPub=readPubCache();
   if(cachedPub?.stats){
     applyCatalogStats(cachedPub.stats,navigator.onLine===false);

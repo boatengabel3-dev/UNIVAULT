@@ -1,5 +1,6 @@
 import 'dotenv/config';
 import express from 'express';
+import crypto from 'node:crypto';
 import fs from 'fs';
 import path from 'path';
 import {
@@ -20,6 +21,21 @@ const staticDir = fs.existsSync(univaultDir) ? univaultDir : distDir;
 
 app.use(express.json({ limit: '35mb' }));
 
+const authUserCache = new Map<string, { userId: string; expiresAt: number }>();
+
+function getJwtExpMs(token: string): number {
+  try {
+    const parts = token.split('.');
+    if (parts.length < 2) return 0;
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')) as {
+      exp?: number;
+    };
+    return typeof payload.exp === 'number' ? payload.exp * 1000 : 0;
+  } catch {
+    return 0;
+  }
+}
+
 async function authenticateSupabaseUser(req: express.Request): Promise<{
   token: string;
   userId: string;
@@ -39,6 +55,13 @@ async function authenticateSupabaseUser(req: express.Request): Promise<{
     throw Object.assign(new Error('Please sign in first.'), { status: 401 });
   }
 
+  const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+  const now = Date.now();
+  const cached = authUserCache.get(tokenHash);
+  if (cached && cached.expiresAt > now) {
+    return { token, userId: cached.userId, supabaseUrl, supabaseAnonKey };
+  }
+
   const userRes = await fetch(`${supabaseUrl}/auth/v1/user`, {
     headers: {
       apikey: supabaseAnonKey,
@@ -47,11 +70,22 @@ async function authenticateSupabaseUser(req: express.Request): Promise<{
     signal: AbortSignal.timeout(8000),
   });
   if (!userRes.ok) {
+    authUserCache.delete(tokenHash);
     throw Object.assign(new Error('Please sign in first.'), { status: 401 });
   }
   const user = (await userRes.json()) as { id?: string };
   if (!user?.id) {
     throw Object.assign(new Error('Please sign in first.'), { status: 401 });
+  }
+
+  const expMs = getJwtExpMs(token);
+  const ttlUntil = expMs > now ? Math.min(now + 45_000, expMs - 2000) : now + 30_000;
+  if (ttlUntil > now) {
+    if (authUserCache.size >= 250) {
+      const oldest = authUserCache.keys().next().value;
+      if (oldest) authUserCache.delete(oldest);
+    }
+    authUserCache.set(tokenHash, { userId: user.id, expiresAt: ttlUntil });
   }
 
   return { token, userId: user.id, supabaseUrl, supabaseAnonKey };
