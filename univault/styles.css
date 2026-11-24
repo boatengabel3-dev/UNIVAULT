@@ -781,6 +781,25 @@ dialog {
   opacity: 1;
 }
 
+@media (hover: hover) and (pointer: fine) {
+  .archive-card:not(.uv-reveal),
+  .archive-card.uv-settled {
+    transition:
+      scale 0.85s cubic-bezier(0.16, 1, 0.3, 1) 0ms,
+      transform 0.24s cubic-bezier(0.16, 1, 0.3, 1) 0ms,
+      border-color 0.22s ease 0ms,
+      background-color 0.22s ease 0ms,
+      box-shadow 0.85s cubic-bezier(0.16, 1, 0.3, 1) 0ms;
+  }
+
+  .archive-card:not(.uv-reveal):hover,
+  .archive-card.uv-settled:hover,
+  .archive-card.uv-settled:focus-within {
+    scale: 1.028;
+    z-index: 2;
+  }
+}
+
 .card-meta {
   display: flex;
   align-items: center;
@@ -2480,9 +2499,12 @@ pre {
   }
 
   .archive-card:hover,
+  .archive-card.uv-settled:hover,
+  .archive-card.uv-settled:focus-within,
   .stat:hover,
   .home-metric:hover,
   .row-item:hover {
     transform: none;
+    scale: 1;
   }
 }

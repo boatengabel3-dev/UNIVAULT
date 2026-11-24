@@ -454,6 +454,33 @@ const uvMotion = (() => {
     });
   }
 
+  function markSettledWhenDone(el, delayMs) {
+    if (!el) return;
+    if (el._uvSettleTimer) {
+      clearTimeout(el._uvSettleTimer);
+      el._uvSettleTimer = null;
+    }
+    const finish = () => {
+      if (el._uvSettleTimer) {
+        clearTimeout(el._uvSettleTimer);
+        el._uvSettleTimer = null;
+      }
+      if (el.isConnected && el.classList.contains("uv-revealed")) {
+        el.classList.add("uv-settled");
+      }
+    };
+    const onEnd = (e) => {
+      if (e.target !== el || (e.propertyName !== "translate" && e.propertyName !== "opacity")) return;
+      el.removeEventListener("transitionend", onEnd);
+      finish();
+    };
+    el.addEventListener("transitionend", onEnd);
+    el._uvSettleTimer = setTimeout(() => {
+      el.removeEventListener("transitionend", onEnd);
+      finish();
+    }, delayMs + 1050);
+  }
+
   function revealBatch(elements) {
     if (!elements || !elements.length) return;
     const now = typeof performance !== "undefined" ? performance.now() : Date.now();
@@ -468,6 +495,7 @@ const uvMotion = (() => {
       requestAnimationFrame(() => {
         el.classList.add("uv-revealed");
         delete el.dataset.uvQueued;
+        markSettledWhenDone(el, delayMs);
       });
       if (observer) observer.unobserve(el);
     });
@@ -480,8 +508,12 @@ const uvMotion = (() => {
     queueTailMs = 0;
     scope.querySelectorAll(".uv-reveal").forEach((el) => {
       if (isHiddenBranch(el)) return;
+      if (el._uvSettleTimer) {
+        clearTimeout(el._uvSettleTimer);
+        el._uvSettleTimer = null;
+      }
       delete el.dataset.uvQueued;
-      el.classList.remove("uv-revealed");
+      el.classList.remove("uv-revealed", "uv-settled");
       el.style.removeProperty("--uv-delay");
       void el.offsetWidth;
     });
