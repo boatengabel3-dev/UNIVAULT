@@ -3,6 +3,7 @@ import express from 'express';
 import crypto from 'node:crypto';
 import fs from 'fs';
 import path from 'path';
+import { openPastQuestionWithServiceKey } from './api/_lib/open-paper.ts';
 import {
   checkDuplicateQuestion,
   formatAiError,
@@ -172,6 +173,33 @@ app.post('/api/check-duplicate', async (req, res) => {
         ? err.status
         : 500;
     const message = err instanceof Error ? err.message : 'Duplicate check failed.';
+    res.status(status).json({ error: message });
+  }
+});
+
+app.post('/api/open-paper', async (req, res) => {
+  try {
+    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY?.trim();
+    if (!serviceRoleKey) {
+      res.status(501).json({ code: 'SERVICE_ROLE_MISSING', error: 'Service key not configured.' });
+      return;
+    }
+
+    const { userId, supabaseUrl } = await authenticateSupabaseUser(req);
+    const qid = String(req.body?.qid || '').trim();
+    const result = await openPastQuestionWithServiceKey({
+      supabaseUrl,
+      serviceRoleKey,
+      userId,
+      questionId: qid,
+    });
+    res.json(result);
+  } catch (err: unknown) {
+    const status =
+      err && typeof err === 'object' && 'status' in err && typeof err.status === 'number'
+        ? err.status
+        : 500;
+    const message = err instanceof Error ? err.message : 'Could not open past paper.';
     res.status(status).json({ error: message });
   }
 });

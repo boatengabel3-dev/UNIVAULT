@@ -841,123 +841,870 @@ $("#clearSearch").onclick = () => {
   $("#search").focus();
 };
 
-async function openPaperById(id) {
-  const found = Q.find((q) => q.id === id);
-  if (!found) {
-    const outOfScope = ALL_Q.find((q) => q.id === id);
-    if (outOfScope && !isAdminUser && userProgramme) {
-      $("#rt").textContent = `${outOfScope.course_code} · Outside ${userProgramme.name}`;
-      $("#rb").textContent = `This paper (${outOfScope.department || outOfScope.course_code}) is outside your registered KNUST programme (${userProgramme.name}).`;
-      $("#solve").hidden = true;
-      if ($("#explainPaper")) $("#explainPaper").hidden = true;
-      if (!$("#reader").open) $("#reader").showModal();
-    }
+let readerMathLoadBound = false;
+
+function typesetMathInReader(el) {
+  if (!el) return;
+  if (typeof window.renderMathInElement === "function") {
+    try {
+      window.renderMathInElement(el, {
+        delimiters: [
+          { left: "$$", right: "$$", display: true },
+          { left: "\\[", right: "\\]", display: true },
+          { left: "$", right: "$", display: false },
+          { left: "\\(", right: "\\)", display: false },
+        ],
+        throwOnError: false,
+        strict: false,
+        ignoredTags: ["script", "noscript", "style", "textarea", "pre", "code"],
+      });
+    } catch {}
     return;
   }
+  if (!readerMathLoadBound) {
+    readerMathLoadBound = true;
+    window.addEventListener(
+      "load",
+      () => {
+        const rb = $("#rb");
+        if (rb && $("#readerSheet")?.dataset?.state === "paper") {
+          typesetMathInReader(rb);
+        }
+      },
+      { once: true }
+    );
+  }
+}
+
+function splitDenseExamLines(segment) {
+  let s = String(segment || "");
+  // 1. Break inline "Question N:" / "Q.N." onto its own line
+  s = s.replace(/([^\n])\s+((?:Question|Q\.?)\s*\d+[A-Za-z]?\s*[:.)\-])/gi, "$1\n$2");
+  s = s.replace(/([.?!;])\s*((?:Question|Q\.?)\s*\d+[A-Za-z]?\s*[:.)\-])/gi, "$1\n$2");
+  // 2. Break inline "Answer:" / "Solution:" onto its own line
+  s = s.replace(/([^\n])\s+((?:Correct\s+)?Answer|Ans|Solution|Explanation)\s*:/gi, "$1\n$2:");
+  // 3. Break inline numbered questions after sentence endings (e.g. "... 2. Find ...")
+  s = s.replace(/([.?!])\s+(\d{1,2}\.\s+(?=[A-Z][a-z]{2,}))/g, "$1\n$2");
+  // 4. Break inline MCQ options (A. ... B. ... C. ... D. ...) onto separate lines
+  s = s
+    .split("\n")
+    .map((line) => {
+      if (/^(?:Correct\s+)?(?:Answer|Ans|Solution|Explanation)\s*:/i.test(line.trim())) {
+        return line;
+      }
+      if (/(?:^|[\s?:.)])A\.\s+[\s\S]*\sB\.\s+/.test(line) || /\sB\.\s+[\s\S]*\sC\.\s+/.test(line)) {
+        return line.replace(/\s+([A-E]\.)\s+/g, "\n$1 ");
+      }
+      if (/(?:^|[\s?:.)])\(A\)\s+[\s\S]*\s\(B\)\s+/.test(line) || /\s\(B\)\s+[\s\S]*\s\(C\)\s+/.test(line)) {
+        return line.replace(/\s+(\([A-E]\))\s+/g, "\n$1 ");
+      }
+      return line;
+    })
+    .join("\n");
+  return s;
+}
+
+function autoDelimitBareLatex(segment) {
+  let out = String(segment || "");
+  const cmdWith2Args = /\\(?:frac|dfrac|tfrac|cfrac|binom)\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)?\}\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)?\}/g;
+  const cmdWith1Arg = /\\(?:sqrt(?:\[[^\]]*\])?|bar|overline|underline|hat|vec|widetilde|widehat|mathbf|mathrm|mathit|mathcal|text)\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)?\}/g;
+  const bigOp = /\\(?:int|iint|iiint|oint|sum|prod|lim|bigcup|bigcap)(?:\s*_(?:\{[^{}]*\}|[A-Za-z0-9\\]+))?(?:\s*\^(?:\{[^{}]*\}|[A-Za-z0-9\\]+))?/g;
+  const mathSymbols = /\\(?:alpha|beta|gamma|delta|epsilon|varepsilon|zeta|eta|theta|vartheta|iota|kappa|lambda|mu|nu|xi|pi|varpi|rho|sigma|tau|upsilon|phi|varphi|chi|psi|omega|Gamma|Delta|Theta|Lambda|Xi|Pi|Sigma|Upsilon|Phi|Psi|Omega|infty|partial|nabla|pm|mp|times|div|cdot|leq|le|geq|ge|neq|ne|approx|equiv|propto|forall|exists|in|notin|subset|subseteq|cup|cap|rightarrow|to|leftarrow|Rightarrow|Leftrightarrow|degree)\b/g;
+
+  const wrapInline = (m) => `$${m}$`;
+  const stash = [];
+  const pushStash = (tex) => {
+    const idx = stash.length;
+    stash.push(tex);
+    return `\u0000LTX${idx}\u0000`;
+  };
+  const stashWrap = (rx) => {
+    out = out.replace(rx, (m) => pushStash(m));
+  };
+
+  stashWrap(cmdWith2Args);
+  stashWrap(cmdWith1Arg);
+  stashWrap(bigOp);
+  stashWrap(mathSymbols);
+
+  // Plain sqrt(...) -> \sqrt{...}
+  out = out.replace(/\bsqrt\s*\(([^()\n]+)\)/gi, (_m, inner) => pushStash(`\\sqrt{${inner.trim()}}`));
+
+  // Plain limit expressions: "lim(n->oo)", "lim un", "lim a_n"
+  out = out.replace(
+    /\blim\s*\(?\s*([a-zA-Z])\s*(?:->|→)\s*(infinity|infty|inf|oo|∞|-?\d+|[a-zA-Z])\s*\)?/g,
+    (_m, v, tgt) => {
+      const cleanTgt = /^(infinity|infty|inf|oo|∞)$/i.test(tgt) ? "\\infty" : tgt;
+      return pushStash(`\\lim_{${v} \\to ${cleanTgt}}`);
+    }
+  );
+  out = out.replace(/\blim\s+([a-zA-Z])([nmk])\b/g, (_m, a, b) => pushStash(`\\lim ${a}_{${b}}`));
+  out = out.replace(/\blim\s+([a-zA-Z]_[A-Za-z0-9{}]+)/g, (_m, sub) => pushStash(`\\lim ${sub}`));
+
+  // Plain numeric fractions (e.g. 26/3, 1/2, -3/4) avoiding dates (12/05/2024)
+  out = out.replace(
+    /(^|[\s=(+\-*,:;\[{])(-?\d{1,4})\/(\d{1,4})(?=$|[\s)=+\-*,.;:!?\]{}])/g,
+    (_m, pre, num, den) => {
+      const neg = num.startsWith("-") ? "-" : "";
+      const absNum = neg ? num.slice(1) : num;
+      return `${pre}${pushStash(`${neg}\\frac{${absNum}}{${den}}`)}`;
+    }
+  );
+
+  // Plain calculus/algebraic fractions (e.g. dy/dx, 1/n^p, x^2/2, 1/x)
+  out = out.replace(
+    /(^|[\s=(+\-*,])(d\^?\d?[a-zA-Z]|\d+|[a-zA-Z](?:\^[A-Za-z0-9{}]+)?)\/([a-zA-Z]\^[A-Za-z0-9{}]+|d[a-zA-Z]\^?\d?|[a-zA-Z]\d*)(?=$|[\s)=+\-*,.;:!?])/g,
+    (m, pre, num, den) => {
+      const looksMath = /\d|\^|^d[a-zA-Z]/.test(num) || /\d|\^|^d[a-zA-Z]/.test(den);
+      if (!looksMath) return m;
+      return `${pre}${pushStash(`\\frac{${num}}{${den}}`)}`;
+    }
+  );
+
+  // Algebraic powers/subscripts like x^2, (a+b)^{n}, n^p, x_1, a_{ij}
+  out = out.replace(
+    /(^|[^A-Za-z0-9_\\])(\([^()\n]{1,24}\)|[A-Za-z0-9])((?:\^(?:\{[^{}\n]+\}|-?[A-Za-z0-9]+)|_(?:\{[^{}\n]+\}|\d{1,3}))+)/g,
+    (_m, pre, base, exp) => `${pre}${pushStash(base + exp)}`
+  );
+
+  // Clean relational expressions like "p > 1", "p <= 0", "n >= 1", "x != 0"
+  out = out.replace(
+    /(^|[\s(,;:])([a-zA-Z])\s*(<=|>=|!=|=|<|>)\s*(-?\d+(?:\.\d+)?|\u0000LTX\d+\u0000|[a-zA-Z])(?=$|[\s).,;:!?])/g,
+    (_m, pre, lhs, op, rhs) => {
+      const opMap = { "<=": "\\le", ">=": "\\ge", "!=": "\\neq" };
+      const cleanOp = opMap[op] || op;
+      const expandedRhs = rhs.replace(/\u0000LTX(\d+)\u0000/g, (_x, i) => stash[Number(i)]);
+      return `${pre}${pushStash(`${lhs} ${cleanOp} ${expandedRhs}`)}`;
+    }
+  );
+
+  // Merge adjacent math chunks separated by operators or trailing numbers (e.g. "lim u_n = 0", "lim u_n = 1/2")
+  out = out.replace(
+    /\u0000LTX(\d+)\u0000(?:\s*(?:<=|>=|!=|->|[=+\-*/^_,;()<>|]|&|ln|sin|cos|tan|log|dx|dy|dt|dz)\s*(?:\u0000LTX(\d+)\u0000|-?\d+(?:\.\d+)?|[a-zA-Z](?![a-zA-Z])))+/g,
+    (seq) => {
+      const expanded = seq
+        .replace(/\u0000LTX(\d+)\u0000/g, (_m, i) => stash[Number(i)])
+        .replace(/<=/g, "\\le")
+        .replace(/>=/g, "\\ge")
+        .replace(/!=/g, "\\neq")
+        .replace(/->/g, "\\to");
+      return pushStash(expanded);
+    }
+  );
+
+  return out.replace(/\u0000LTX(\d+)\u0000/g, (_m, i) => wrapInline(stash[Number(i)]));
+}
+
+function tokenizeExamMath(rawText) {
+  const tokens = [];
+  const displaySet = new Set();
+  const pushToken = (tex, isDisplay) => {
+    const idx = tokens.length;
+    tokens.push(tex);
+    if (isDisplay) displaySet.add(idx);
+    return `@@UVMATH_${idx}@@`;
+  };
+
+  let text = String(rawText || "").replace(/\r\n?/g, "\n");
+
+  // 1. Display math $$...$$
+  text = text.replace(/\$\$([\s\S]*?)\$\$/g, (m) => pushToken(m, true));
+  // 2. Display math \[...\]
+  text = text.replace(/\\\[([\s\S]*?)\\\]/g, (m) => pushToken(m, true));
+  // 3. Bare LaTeX block environments (\begin{align}...\end{align}, cases, matrix, etc.)
+  text = text.replace(
+    /\\begin\{(equation\*?|align\*?|aligned|gather\*?|cases|pmatrix|bmatrix|vmatrix|matrix|array)\}[\s\S]*?\\end\{\1\}/g,
+    (m) => pushToken(`$$${m}$$`, true)
+  );
+  // 4. Inline math \(...\)
+  text = text.replace(/\\\(([\s\S]*?)\\\)/g, (m) => pushToken(m, false));
+  // 5. Inline math $...$ (guarding currency ranges like "$20 and $30")
+  text = text.replace(/\$(?!\s)((?:\\.|[^$\n\\])+?)(?<!\s)\$/g, (m, inner) => {
+    if (/^\d/.test(inner) && /\s[a-z]{3,}\s/i.test(inner)) return m;
+    return pushToken(m, false);
+  });
+
+  // 6. Split dense inline questions/options/answers & auto-delimit bare math ONLY outside existing math tokens
+  text = text
+    .split(/(@@UVMATH_\d+@@)/g)
+    .map((part) => {
+      if (!part || /^@@UVMATH_\d+@@$/.test(part)) return part;
+      const splitPart = splitDenseExamLines(part);
+      const delimited = autoDelimitBareLatex(splitPart);
+      return delimited.replace(/\$(?!\s)((?:\\.|[^$\n\\])+?)(?<!\s)\$/g, (m) => pushToken(m, false));
+    })
+    .join("");
+
+  return { text, tokens, displaySet };
+}
+
+function formatInlineExamHtml(rawLine, tokens) {
+  let html = esc(rawLine);
+  // Strong/italic markdown emphasis produced by OCR/AI cleanup
+  html = html.replace(/\*\*([^*\n]+?)\*\*/g, "<strong>$1</strong>");
+  html = html.replace(/(^|\s)\*([^*\n]+?)\*(?=\s|[.,;:!?)]|$)/g, "$1<em>$2</em>");
+  // Highlight exam mark allocations like [10 marks], (5 marks), [4 mks]
+  html = html.replace(
+    /(\[\s*\d+(?:\.\d+)?\s*(?:marks?|mks?|pts?|points?|%)\s*\]|\(\s*\d+(?:\.\d+)?\s*(?:marks?|mks?|pts?|points?)\s*\))/gi,
+    '<span class="exam-marks">$1</span>'
+  );
+  // Restore tokenized math cleanly inside HTML-escaped text nodes for KaTeX
+  html = html.replace(/@@UVMATH_(\d+)@@/g, (_m, i) => esc(tokens[Number(i)] || ""));
+  return html;
+}
+
+function formatExamPaperHtml(rawText) {
+  const { text, tokens, displaySet } = tokenizeExamMath(rawText);
+  const lines = text.split("\n");
+  const blocks = [];
+  let mcqBuffer = [];
+
+  const flushMcq = () => {
+    if (!mcqBuffer.length) return;
+    blocks.push(`<div class="exam-mcq-list">${mcqBuffer.join("")}</div>`);
+    mcqBuffer = [];
+  };
+
+  for (const line of lines) {
+    const t = line.trim();
+    if (!t) {
+      flushMcq();
+      continue;
+    }
+
+    // Multiple-choice option lines: "A. ...", "(A) ..." (uppercase A-E)
+    const mcqMatch = t.match(/^(?:([A-E])\.|\(([A-E])\))\s+(.*)$/);
+    if (mcqMatch) {
+      const key = `${mcqMatch[1] || mcqMatch[2]}.`;
+      const val = mcqMatch[3] || "";
+      mcqBuffer.push(
+        `<div class="exam-mcq-opt"><span class="exam-mcq-key">${esc(key)}</span><div class="exam-mcq-val">${formatInlineExamHtml(val, tokens)}</div></div>`
+      );
+      continue;
+    }
+
+    flushMcq();
+
+    // Horizontal rule dividers
+    if (/^([-=_*])\1{2,}$/.test(t)) {
+      blocks.push('<hr class="exam-hr">');
+      continue;
+    }
+
+    // Standalone display-math line
+    const soleMath = t.match(/^@@UVMATH_(\d+)@@$/);
+    if (soleMath && displaySet.has(Number(soleMath[1]))) {
+      blocks.push(`<div class="exam-math-block">${esc(tokens[Number(soleMath[1])] || "")}</div>`);
+      continue;
+    }
+
+    // Markdown headings
+    const mdHead = t.match(/^#{1,4}\s+(.+)$/);
+    if (mdHead) {
+      blocks.push(`<h5 class="exam-sec-head">${formatInlineExamHtml(mdHead[1], tokens)}</h5>`);
+      continue;
+    }
+
+    // Formal exam section / instruction headings
+    if (
+      /^(?:SECTION|PART)\s+[A-Z0-9]+\b/i.test(t) ||
+      /^(?:INSTRUCTIONS?(?:\s+TO\s+CANDIDATES)?|GENERAL\s+INSTRUCTIONS?|ANSWER\s+ALL\b|TIME\s+ALLOWED\b)/i.test(t)
+    ) {
+      blocks.push(`<h5 class="exam-sec-head">${formatInlineExamHtml(t, tokens)}</h5>`);
+      continue;
+    }
+
+    // Answer / Solution key line
+    const ansMatch = t.match(/^((?:Correct\s+)?Answer|Ans|Solution|Explanation)\s*:\s*(.*)$/i);
+    if (ansMatch) {
+      blocks.push(
+        `<div class="exam-answer-line"><span class="exam-answer-tag">${esc(ansMatch[1])}</span><span>${formatInlineExamHtml(ansMatch[2], tokens)}</span></div>`
+      );
+      continue;
+    }
+
+    // Numbered main questions: "Question 1 ...", "Q1.", "1. ..."
+    const qMatch = t.match(/^(?:(?:Question|Q\.?)\s*(\d+[A-Za-z]?)\s*[:.)\-]?\s*|(\d{1,2})\.\s+)(.*)$/i);
+    if (qMatch) {
+      const label = qMatch[1] ? `Question ${qMatch[1]}.` : `${qMatch[2]}.`;
+      const rest = qMatch[3] || "";
+      blocks.push(
+        `<div class="exam-q-head"><span class="exam-q-num">${esc(label)}</span><div class="exam-q-text">${formatInlineExamHtml(rest, tokens)}</div></div>`
+      );
+      continue;
+    }
+
+    // Sub-questions: "(a) ...", "(ii) ...", "a) ..."
+    const subMatch = t.match(/^(?:\(([a-z]|[ivx]{1,5})\)|([a-z]|[ivx]{1,5})\))\s+(.*)$/i);
+    if (subMatch) {
+      const subLbl = `(${subMatch[1] || subMatch[2]})`;
+      const rest = subMatch[3] || "";
+      blocks.push(
+        `<div class="exam-subq"><span class="exam-subq-label">${esc(subLbl)}</span><div class="exam-subq-body">${formatInlineExamHtml(rest, tokens)}</div></div>`
+      );
+      continue;
+    }
+
+    // Bullet items
+    const bulletMatch = t.match(/^(?:[-•*])\s+(.*)$/);
+    if (bulletMatch) {
+      blocks.push(
+        `<div class="exam-bullet"><span class="exam-bullet-dot" aria-hidden="true">•</span><div>${formatInlineExamHtml(bulletMatch[1], tokens)}</div></div>`
+      );
+      continue;
+    }
+
+    blocks.push(`<p class="exam-p">${formatInlineExamHtml(t, tokens)}</p>`);
+  }
+
+  flushMcq();
+  return blocks.join("");
+}
+
+function setReaderView({ title, body = "", paper = null, isPaper = false, isLoading = false }) {
+  if ($("#rt")) $("#rt").textContent = title || "Past Question";
+  const sheet = $("#readerSheet");
+  const masthead = $("#readerMasthead");
+  const rb = $("#rb");
+  const printBtn = $("#printPaperBtn");
+  const downloadBtn = $("#downloadPaperBtn");
+
+  if (sheet) {
+    sheet.dataset.state = isPaper ? "paper" : "status";
+  }
+
+  if (masthead && paper && (isPaper || isLoading)) {
+    masthead.hidden = false;
+    if ($("#readerDept")) {
+      $("#readerDept").textContent = paper.department || "Academic Examination Archive";
+    }
+    if ($("#readerCourseLine")) {
+      const code = paper.course_code || "";
+      const ctitle = paper.course_title || "";
+      $("#readerCourseLine").textContent = ctitle ? `${code} — ${ctitle}` : code;
+    }
+    if ($("#readerTermLine")) {
+      const termParts = [];
+      if (paper.year) termParts.push(String(paper.year));
+      if (paper.semester) termParts.push(`Semester ${paper.semester}`);
+      $("#readerTermLine").textContent = termParts.join(" · ");
+    }
+    if ($("#readerNotes")) {
+      if (isPaper && paper.description) {
+        $("#readerNotes").textContent = paper.description;
+        $("#readerNotes").hidden = false;
+      } else {
+        $("#readerNotes").textContent = "";
+        $("#readerNotes").hidden = true;
+      }
+    }
+  } else if (masthead) {
+    masthead.hidden = true;
+  }
+
+  if (rb) {
+    if (isPaper) {
+      rb.innerHTML = formatExamPaperHtml(body);
+      typesetMathInReader(rb);
+    } else {
+      rb.innerHTML = `<div class="pdf-status-note${isLoading ? " is-loading" : ""}">${esc(body)}</div>`;
+    }
+  }
+
+  if (printBtn) {
+    printBtn.hidden = !isPaper;
+  }
+  if (downloadBtn) {
+    downloadBtn.hidden = !isPaper;
+  }
+  if (isPaper) {
+    setTimeout(() => ensureHtml2PdfLoaded().catch(() => {}), 400);
+  }
+
+  const stage = $("#reader .pdf-stage");
+  if (stage) stage.scrollTop = 0;
+}
+
+let html2pdfLoaderPromise = null;
+
+function ensureHtml2PdfLoaded() {
+  if (typeof window.html2pdf === "function") {
+    return Promise.resolve(window.html2pdf);
+  }
+  if (html2pdfLoaderPromise) return html2pdfLoaderPromise;
+
+  html2pdfLoaderPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-uv-html2pdf="1"]');
+    if (existing) {
+      existing.addEventListener("load", () =>
+        typeof window.html2pdf === "function" ? resolve(window.html2pdf) : reject(new Error("html2pdf unavailable"))
+      );
+      existing.addEventListener("error", () => {
+        html2pdfLoaderPromise = null;
+        reject(new Error("Failed to load PDF generator"));
+      });
+      return;
+    }
+
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js";
+    s.crossOrigin = "anonymous";
+    s.async = true;
+    s.dataset.uvHtml2pdf = "1";
+
+    const timer = setTimeout(() => {
+      html2pdfLoaderPromise = null;
+      reject(new Error("PDF generator load timed out"));
+    }, 15000);
+
+    s.onload = () => {
+      clearTimeout(timer);
+      if (typeof window.html2pdf === "function") {
+        resolve(window.html2pdf);
+      } else {
+        html2pdfLoaderPromise = null;
+        reject(new Error("html2pdf unavailable"));
+      }
+    };
+    s.onerror = () => {
+      clearTimeout(timer);
+      html2pdfLoaderPromise = null;
+      reject(new Error("Failed to load PDF generator"));
+    };
+    document.head.appendChild(s);
+  });
+
+  return html2pdfLoaderPromise;
+}
+
+function buildSafePaperFilename(paper) {
+  const parts = [
+    paper?.course_code || "KNUST-Exam-Paper",
+    paper?.year || "",
+    paper?.semester ? `Sem-${paper.semester}` : "",
+  ].filter(Boolean);
+  return (
+    parts
+      .join("-")
+      .replace(/[^A-Za-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "UniVault-Exam-Paper"
+  );
+}
+
+function triggerBlobDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.style.display = "none";
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    a.remove();
+    URL.revokeObjectURL(url);
+  }, 4000);
+}
+
+function downloadStandaloneExamHtml(paper, sheetEl) {
+  const clone = sheetEl.cloneNode(true);
+  clone.querySelectorAll("img").forEach((img) => {
+    try {
+      const c = document.createElement("canvas");
+      if (img.naturalWidth && img.naturalHeight) {
+        c.width = img.naturalWidth;
+        c.height = img.naturalHeight;
+        c.getContext("2d")?.drawImage(img, 0, 0);
+        img.src = c.toDataURL("image/png");
+      }
+    } catch {}
+  });
+  const docTitle = buildSafePaperFilename(paper);
+  const htmlDoc = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(docTitle)} — KNUST UniVault</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" crossorigin="anonymous">
+<style>
+  body { margin: 0; padding: 28px 16px; background: #e2e8f0; color: #111827; font-family: Georgia, "Times New Roman", serif; }
+  .pdf-sheet { max-width: 760px; margin: 0 auto; background: #ffffff; padding: 44px 48px; border: 1px solid #cbd5e1; font-size: 16.5px; line-height: 1.72; }
+  .pdf-masthead { text-align: center; padding-bottom: 16px; margin-bottom: 22px; border-bottom: 2px solid #0f172a; }
+  .pdf-crest { width: 44px; height: auto; display: block; margin: 0 auto 8px; }
+  .pdf-uni { margin: 0; font-size: 0.92rem; font-weight: 700; letter-spacing: 0.06em; color: #0f172a; }
+  .pdf-dept, .pdf-term-line { margin: 3px 0 0; font-size: 0.9rem; font-weight: 600; color: #334155; }
+  .pdf-course-line { margin: 12px 0 2px; font-size: 1.08rem; font-weight: 700; color: #0f172a; }
+  .pdf-notes-line { margin: 8px auto 0; font-size: 0.9rem; font-style: italic; color: #475569; }
+  .exam-sec-head { margin: 22px 0 10px; padding-bottom: 4px; border-bottom: 1px solid #cbd5e1; font-size: 0.98rem; font-weight: 700; text-transform: uppercase; color: #0f172a; }
+  .exam-q-head { display: grid; grid-template-columns: auto 1fr; gap: 10px; margin: 18px 0 8px; }
+  .exam-q-head:not(:first-child) { padding-top: 14px; border-top: 1px solid #e2e8f0; }
+  .exam-q-num, .exam-mcq-key { font-weight: 700; color: #0f172a; white-space: nowrap; }
+  .exam-subq, .exam-bullet { display: grid; grid-template-columns: auto 1fr; gap: 10px; margin: 8px 0 8px 24px; }
+  .exam-mcq-list { display: grid; gap: 7px; margin: 10px 0 10px 24px; }
+  .exam-mcq-opt { display: grid; grid-template-columns: 28px 1fr; gap: 8px; }
+  .exam-answer-line { margin: 8px 0 6px 24px; padding: 6px 11px; background: #f8fafc; border-left: 3px solid #1d4ed8; font-size: 0.94em; }
+  .exam-answer-tag { font-weight: 700; text-transform: uppercase; color: #1e40af; margin-right: 6px; }
+  .exam-marks { font-size: 0.82em; font-weight: 600; color: #334155; }
+  .exam-hr { border: 0; border-top: 1px solid #cbd5e1; margin: 18px 0; }
+  @media print { body { background: #fff; padding: 0; } .pdf-sheet { border: 0; padding: 0; max-width: none; } }
+</style>
+</head>
+<body>${clone.outerHTML}</body>
+</html>`;
+  triggerBlobDownload(new Blob([htmlDoc], { type: "text/html;charset=utf-8" }), `${docTitle}.html`);
+}
+
+async function downloadCurrentPaper() {
+  const sheet = $("#readerSheet");
+  const btn = $("#downloadPaperBtn");
+  if (!sheet || sheet.dataset.state !== "paper" || !cur?.content) return;
+
+  const labelEl = btn?.querySelector("span");
+  const prevLabel = labelEl ? labelEl.textContent : "";
+  if (btn) btn.disabled = true;
+  if (labelEl) labelEl.textContent = "Preparing PDF...";
+
+  let host = null;
+  try {
+    if (document.fonts?.ready) {
+      await Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 1500))]);
+    }
+    const html2pdfFn = await ensureHtml2PdfLoaded();
+    const baseName = buildSafePaperFilename(cur);
+
+    host = document.createElement("div");
+    host.style.cssText =
+      "position:fixed;left:-10000px;top:0;width:740px;background:#ffffff;z-index:-1;pointer-events:none;";
+
+    const exportSheet = sheet.cloneNode(true);
+    exportSheet.removeAttribute("id");
+    exportSheet.style.cssText =
+      "max-width:none;width:740px;margin:0;padding:32px 38px;border:0;border-radius:0;box-shadow:none;background:#ffffff;color:#111827;";
+    // Remove hidden MathML duplicates so html2canvas renders crisp KaTeX glyphs only once
+    exportSheet.querySelectorAll(".katex-mathml").forEach((el) => el.remove());
+
+    host.appendChild(exportSheet);
+    document.body.appendChild(host);
+
+    await html2pdfFn()
+      .set({
+        margin: [12, 12, 14, 12],
+        filename: `${baseName}.pdf`,
+        image: { type: "jpeg", quality: 0.96 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: "#ffffff",
+          scrollX: 0,
+          scrollY: 0,
+          windowWidth: 740,
+        },
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
+        pagebreak: {
+          mode: ["css", "legacy"],
+          avoid: [".exam-q-head", ".exam-subq", ".exam-mcq-opt", ".exam-answer-line", ".pdf-masthead"],
+        },
+      })
+      .from(exportSheet)
+      .save();
+  } catch (err) {
+    console.warn("PDF export failed, falling back to printable sheet HTML:", err);
+    downloadStandaloneExamHtml(cur, sheet);
+  } finally {
+    if (host) host.remove();
+    if (btn) btn.disabled = false;
+    if (labelEl) labelEl.textContent = prevLabel || "Download PDF";
+  }
+}
+
+if ($("#downloadPaperBtn")) {
+  $("#downloadPaperBtn").onclick = () => {
+    downloadCurrentPaper();
+  };
+}
+
+if ($("#printPaperBtn")) {
+  $("#printPaperBtn").onclick = () => {
+    window.print();
+  };
+}
+
+function openReaderModal() {
+  const dlg = $("#reader");
+  if (!dlg) return;
+  if (!dlg.open) {
+    try {
+      dlg.showModal();
+    } catch {
+      dlg.setAttribute("open", "");
+    }
+  }
+}
+
+async function openPaperById(rawId) {
+  const id = String(rawId || "").trim();
+  if (!id) return;
+
+  const found = Q.find((q) => String(q.id) === id);
+  if (!found) {
+    const outOfScope = ALL_Q.find((q) => String(q.id) === id);
+    if (outOfScope && !isAdminUser && userProgramme) {
+      setReaderView({
+        title: `${outOfScope.course_code} · Outside ${userProgramme.name}`,
+        body: `This paper (${outOfScope.department || outOfScope.course_code}) is outside your registered KNUST programme (${userProgramme.name}).`,
+      });
+    } else {
+      setReaderView({
+        title: "Past Question Unavailable",
+        body: "This past question could not be found in your current archive view, or it has not been approved yet.",
+      });
+    }
+    $("#solve").hidden = true;
+    if ($("#explainPaper")) $("#explainPaper").hidden = true;
+    if ($("#upgradeFromReader")) $("#upgradeFromReader").hidden = true;
+    openReaderModal();
+    return;
+  }
+
   cur = found;
   syncUrlParams({ paper: id, view: null });
-  $("#rt").textContent = `${cur.course_code} · ${cur.year}${cur.semester ? " Sem " + cur.semester : ""}`;
+  const paperHeaderTitle = `${cur.course_code} · ${cur.year}${cur.semester ? " Sem " + cur.semester : ""}`;
+  setReaderView({
+    title: paperHeaderTitle,
+    body: "Formatting past paper for reading...",
+    paper: cur,
+    isLoading: true,
+  });
+  $("#solve").hidden = true;
+  if ($("#explainPaper")) $("#explainPaper").hidden = true;
+  if ($("#upgradeFromReader")) $("#upgradeFromReader").hidden = true;
+  openReaderModal();
 
-  let content = null;
+  const isSchemaOrRpcError = (err) => {
+    if (!err) return false;
+    const code = String(err.code || "");
+    const msg = String(err.message || err.details || err.hint || "");
+    return (
+      /^(42883|42703|42P01|42501|PGRST\d+)$/i.test(code) ||
+      /could not find|does not exist|schema cache|open_past_question|free_question|permission denied|pgrst/i.test(msg)
+    );
+  };
+  const isNetworkFailure = (err) => {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
+    const msg = String(err?.message || err || "");
+    return /failed to fetch|networkerror|load failed|network request failed|err_internet|timed out/i.test(msg);
+  };
+
+  let content = "";
+  let hasAccess = false;
   let networkFailed = false;
+  let schemaNeedsMigration = false;
   let blockedReason = "";
+  let lastErrorMessage = "";
+
+  const applyRpcPayload = (rpcData) => {
+    if (!rpcData || typeof rpcData !== "object") return false;
+    if (typeof rpcData.limit === "number") {
+      appSettings.free_questions_limit = rpcData.limit;
+    }
+    if (Array.isArray(rpcData.free_question_ids)) {
+      P.free_question_ids = rpcData.free_question_ids;
+    }
+    if (rpcData.allowed) {
+      hasAccess = true;
+      content = typeof rpcData.content === "string" ? rpcData.content : "";
+      if (
+        !rpcData.unlimited &&
+        (!Array.isArray(P.free_question_ids) || !P.free_question_ids.includes(id))
+      ) {
+        P.free_question_ids = [...(Array.isArray(P.free_question_ids) ? P.free_question_ids : []), id];
+      }
+      if (content) {
+        saveOfflinePaper(cur, content);
+      }
+      updatePricingAndQuotaUi(undefined, rpcData.unlimited ? undefined : rpcData.remaining);
+      writeOfflineJson("meta", { P, isAdminUser, appSettings, myPayouts, myUploads });
+      render(false);
+    } else if (rpcData.not_found) {
+      blockedReason = "This past question could not be found in the database.";
+    } else {
+      const lim = Number(rpcData.limit ?? appSettings.free_questions_limit ?? 3);
+      const used = Number(rpcData.used ?? lim);
+      updatePricingAndQuotaUi(undefined, 0);
+      blockedReason =
+        lim === 0
+          ? `Subscribe to Pro (GH₵${formatPriceGhs(C.PRICE_GHS)}/month) to read full past papers.`
+          : `You have reached your free limit of ${used} of ${lim} past question${lim === 1 ? "" : "s"}. Upgrade to Pro (GH₵${formatPriceGhs(C.PRICE_GHS)}/month) for unlimited access.`;
+    }
+    return true;
+  };
 
   try {
     const { data: rpcData, error: rpcErr } = await sb.rpc("open_past_question", { qid: id });
-    if (!rpcErr && rpcData && typeof rpcData === "object") {
-      if (typeof rpcData.limit === "number") {
-        appSettings.free_questions_limit = rpcData.limit;
-      }
-      if (Array.isArray(rpcData.free_question_ids)) {
-        P.free_question_ids = rpcData.free_question_ids;
-      }
-      if (rpcData.allowed) {
-        content = typeof rpcData.content === "string" ? rpcData.content : "";
-        if (
-          !rpcData.unlimited &&
-          (!Array.isArray(P.free_question_ids) || !P.free_question_ids.includes(id))
-        ) {
-          P.free_question_ids = [...(Array.isArray(P.free_question_ids) ? P.free_question_ids : []), id];
-        }
-        if (content) {
-          saveOfflinePaper(cur, content);
-        }
-        updatePricingAndQuotaUi(undefined, rpcData.unlimited ? undefined : rpcData.remaining);
-        writeOfflineJson("meta", { P, isAdminUser, appSettings, myPayouts, myUploads });
-        render(false);
-      } else {
-        const lim = Number(rpcData.limit ?? appSettings.free_questions_limit ?? 3);
-        const used = Number(rpcData.used ?? lim);
-        updatePricingAndQuotaUi(undefined, 0);
-        blockedReason =
-          lim === 0
-            ? `Subscribe to Pro (GH₵${formatPriceGhs(C.PRICE_GHS)}/month) to read full past papers.`
-            : `You have reached your free limit of ${used} of ${lim} past question${lim === 1 ? "" : "s"}. Upgrade to Pro (GH₵${formatPriceGhs(C.PRICE_GHS)}/month) for unlimited access.`;
-      }
-    } else if (
-      rpcErr &&
-      !/could not find|pgrst202|open_past_question/i.test(rpcErr.message || "")
-    ) {
+    if (!rpcErr && applyRpcPayload(rpcData)) {
+      // handled cleanly by open_past_question RPC
+    } else if (rpcErr && isNetworkFailure(rpcErr)) {
       networkFailed = true;
     } else {
-      const { data, error } = await sb
-        .from("question_content")
-        .select("content")
-        .eq("question_id", id)
-        .maybeSingle();
-      if (error) {
-        networkFailed = true;
-      } else if (data?.content) {
-        content = data.content;
-        saveOfflinePaper(cur, content);
-        render(false);
+      if (rpcErr) {
+        schemaNeedsMigration = isSchemaOrRpcError(rpcErr);
+        lastErrorMessage = String(rpcErr.message || "");
+      }
+
+      let resolvedViaFallbackEndpoint = false;
+      try {
+        const {
+          data: { session },
+        } = await sb.auth.getSession();
+        const token = session?.access_token;
+        if (token) {
+          const apiRes = await fetch("/api/open-paper", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({ qid: id }),
+          });
+          if (apiRes.ok) {
+            const apiJson = await apiRes.json().catch(() => null);
+            resolvedViaFallbackEndpoint = applyRpcPayload(apiJson);
+          }
+        }
+      } catch {}
+
+      if (!resolvedViaFallbackEndpoint && typeof sb?.functions?.invoke === "function") {
+        try {
+          const { data: fnData, error: fnErr } = await sb.functions.invoke("open-paper", {
+            body: { qid: id },
+          });
+          if (!fnErr && applyRpcPayload(fnData)) {
+            resolvedViaFallbackEndpoint = true;
+          }
+        } catch {}
+      }
+
+      if (!resolvedViaFallbackEndpoint) {
+        const { data, error } = await sb
+          .from("question_content")
+          .select("content")
+          .eq("question_id", id)
+          .maybeSingle();
+        if (error) {
+          if (isNetworkFailure(error)) {
+            networkFailed = true;
+          } else {
+            lastErrorMessage = String(error.message || lastErrorMessage || "");
+          }
+        } else if (data !== null && data !== undefined) {
+          hasAccess = true;
+          content = typeof data.content === "string" ? data.content : "";
+          if (content) {
+            saveOfflinePaper(cur, content);
+            render(false);
+          }
+        }
       }
     }
-  } catch {
-    networkFailed = true;
+  } catch (err) {
+    if (isNetworkFailure(err)) {
+      networkFailed = true;
+    } else {
+      lastErrorMessage = String(err?.message || "Could not open this paper right now.");
+    }
   }
 
-  if (!content && !blockedReason) {
+  if (!hasAccess && !blockedReason) {
     const cachedPaper = getOfflinePaper(id);
-    if (cachedPaper?.content && (networkFailed || navigator.onLine === false)) {
+    if (
+      cachedPaper?.content &&
+      (networkFailed || navigator.onLine === false || P.on || isAdminUser)
+    ) {
+      hasAccess = true;
       content = cachedPaper.content;
     }
   }
 
   cur.content = content;
-  if (content) {
+  if (hasAccess) {
     if ($("#pricingNotice")) $("#pricingNotice").hidden = true;
-    $("#rb").textContent = content;
-    $("#solve").hidden = false;
-    if ($("#explainPaper")) $("#explainPaper").hidden = false;
-    if (!$("#reader").open) $("#reader").showModal();
+    if ($("#upgradeFromReader")) $("#upgradeFromReader").hidden = true;
+    if (content.trim()) {
+      setReaderView({
+        title: paperHeaderTitle,
+        body: content,
+        paper: cur,
+        isPaper: true,
+      });
+      $("#solve").hidden = false;
+      if ($("#explainPaper")) $("#explainPaper").hidden = false;
+    } else {
+      setReaderView({
+        title: paperHeaderTitle,
+        body: "This paper is unlocked for your account, but no question text was uploaded for it yet.",
+        paper: cur,
+        isPaper: false,
+      });
+      $("#solve").hidden = true;
+      if ($("#explainPaper")) $("#explainPaper").hidden = true;
+    }
+    openReaderModal();
     return;
   }
 
   if (networkFailed || navigator.onLine === false) {
-    $("#rb").textContent =
-      "You are offline and this paper has not been loaded on this device yet. Reconnect to load it once and save it for offline study.";
+    setReaderView({
+      title: paperHeaderTitle,
+      body: "You are offline and this paper has not been loaded on this device yet. Reconnect to load it once and save it for offline study.",
+      paper: cur,
+      isPaper: false,
+    });
     $("#solve").hidden = true;
     if ($("#explainPaper")) $("#explainPaper").hidden = true;
-    if (!$("#reader").open) $("#reader").showModal();
+    if ($("#upgradeFromReader")) $("#upgradeFromReader").hidden = true;
+    openReaderModal();
     return;
   }
 
+  const freeLim = Number(appSettings.free_questions_limit ?? 3);
+  const priceTxt = formatPriceGhs(C.PRICE_GHS);
   const noticeText =
-    blockedReason || `Subscribe for GH₵${formatPriceGhs(C.PRICE_GHS)}/month to read this paper.`;
+    blockedReason ||
+    (schemaNeedsMigration && !P.on && !isAdminUser && freeLim > 0
+      ? `Free past-question reading (${freeLim} free papers) is awaiting database setup by the site admin. Upgrade to Pro (GH₵${priceTxt}/month) for immediate unlimited access.`
+      : lastErrorMessage
+        ? `Unable to open this paper right now.${!P.on && !isAdminUser ? ` Upgrade to Pro (GH₵${priceTxt}/month) or ask an admin to verify paper permissions.` : ""}`
+        : `Subscribe to Pro (GH₵${priceTxt}/month) to read this past question.`);
+
   if ($("#pricingNotice")) {
     $("#pricingNotice").textContent = noticeText;
     $("#pricingNotice").hidden = false;
   }
-  $("#rb").textContent = noticeText;
+  setReaderView({
+    title: paperHeaderTitle,
+    body: noticeText,
+    paper: cur,
+    isPaper: false,
+  });
   $("#solve").hidden = true;
-  if ($("#reader").open) $("#reader").close();
-  syncUrlParams({ paper: null });
-  show("pricing");
+  if ($("#explainPaper")) $("#explainPaper").hidden = true;
+  if ($("#upgradeFromReader")) {
+    $("#upgradeFromReader").hidden = Boolean(P.on || isAdminUser);
+  }
+  openReaderModal();
+}
+
+if ($("#upgradeFromReader")) {
+  $("#upgradeFromReader").onclick = () => {
+    if ($("#reader")?.open) $("#reader").close();
+    syncUrlParams({ paper: null });
+    show("pricing");
+  };
 }
 
 $("#list").onclick = (e) => {
-  const id = e.target.dataset.id;
+  const btn = e.target?.closest?.("[data-id]");
+  const id = btn?.dataset?.id;
   if (!id) return;
   openPaperById(id);
 };
@@ -965,6 +1712,9 @@ $("#list").onclick = (e) => {
 if ($("#reader")) {
   $("#reader").addEventListener("close", () => {
     syncUrlParams({ paper: null });
+  });
+  $("#reader").addEventListener("click", (e) => {
+    if (e.target === $("#reader")) $("#reader").close();
   });
 }
 

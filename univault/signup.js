@@ -317,7 +317,7 @@ async function redirectAfterAuth(user, authMode = null) {
       .select("user_id")
       .eq("user_id", userId)
       .maybeSingle();
-    if (nextUrl && !adm) {
+    if (nextUrl && (!adm || /[?&]paper=/.test(nextUrl))) {
       return go(nextUrl, "Opening shared past paper...");
     }
     go(

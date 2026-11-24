@@ -37,6 +37,10 @@
         <label style="display:grid;gap:6px;font-size:.9rem;color:var(--mut)">Free AI Uses Before Pro<input id="setFreeAiLimit" type="number" min="0" max="500" step="1" value="5" required></label>
         <button id="saveSettingsBtn" type="submit">Save Pricing &amp; Limits</button>
       </form>
+      <div id="schemaMigrationBox" hidden style="margin-top:14px;padding-top:14px;border-top:1px solid var(--b);display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between">
+        <span id="schemaMigrationText" style="font-size:.9rem;color:var(--warn-ink)">Free past-question reading needs a quick one-time SQL update in your Supabase SQL Editor.</span>
+        <button id="copySqlFixBtn" type="button" class="ghost">Copy Free-Tier SQL Fix</button>
+      </div>
     </div>
     <div class="two-col">
       <div>
