@@ -1218,63 +1218,87 @@ function setReaderView({ title, body = "", paper = null, isPaper = false, isLoad
     downloadBtn.hidden = !isPaper;
   }
   if (isPaper) {
-    setTimeout(() => ensureHtml2PdfLoaded().catch(() => {}), 400);
+    setTimeout(() => ensurePdfLibsLoaded().catch(() => {}), 400);
   }
 
   const stage = $("#reader .pdf-stage");
   if (stage) stage.scrollTop = 0;
 }
 
-let html2pdfLoaderPromise = null;
+let pdfLibsLoaderPromise = null;
 
-function ensureHtml2PdfLoaded() {
-  if (typeof window.html2pdf === "function") {
-    return Promise.resolve(window.html2pdf);
-  }
-  if (html2pdfLoaderPromise) return html2pdfLoaderPromise;
-
-  html2pdfLoaderPromise = new Promise((resolve, reject) => {
-    const existing = document.querySelector('script[data-uv-html2pdf="1"]');
+function loadExternalScript(src, attrName) {
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector(`script[${attrName}="1"]`);
     if (existing) {
-      existing.addEventListener("load", () =>
-        typeof window.html2pdf === "function" ? resolve(window.html2pdf) : reject(new Error("html2pdf unavailable"))
-      );
-      existing.addEventListener("error", () => {
-        html2pdfLoaderPromise = null;
-        reject(new Error("Failed to load PDF generator"));
-      });
+      if (existing.dataset.loaded === "1") {
+        resolve();
+        return;
+      }
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error(`Failed to load ${src}`)), { once: true });
       return;
     }
 
     const s = document.createElement("script");
-    s.src = "https://cdn.jsdelivr.net/npm/html2pdf.js@0.10.2/dist/html2pdf.bundle.min.js";
+    s.src = src;
     s.crossOrigin = "anonymous";
     s.async = true;
-    s.dataset.uvHtml2pdf = "1";
+    s.setAttribute(attrName, "1");
 
     const timer = setTimeout(() => {
-      html2pdfLoaderPromise = null;
-      reject(new Error("PDF generator load timed out"));
+      s.remove();
+      reject(new Error(`Timed out loading ${src}`));
     }, 15000);
 
     s.onload = () => {
       clearTimeout(timer);
-      if (typeof window.html2pdf === "function") {
-        resolve(window.html2pdf);
-      } else {
-        html2pdfLoaderPromise = null;
-        reject(new Error("html2pdf unavailable"));
-      }
+      s.dataset.loaded = "1";
+      resolve();
     };
     s.onerror = () => {
       clearTimeout(timer);
-      html2pdfLoaderPromise = null;
-      reject(new Error("Failed to load PDF generator"));
+      s.remove();
+      reject(new Error(`Failed to load ${src}`));
     };
     document.head.appendChild(s);
   });
+}
 
-  return html2pdfLoaderPromise;
+function ensurePdfLibsLoaded() {
+  if (typeof window.html2canvas === "function" && typeof window.jspdf?.jsPDF === "function") {
+    return Promise.resolve({ html2canvas: window.html2canvas, jsPDF: window.jspdf.jsPDF });
+  }
+  if (pdfLibsLoaderPromise) return pdfLibsLoaderPromise;
+
+  pdfLibsLoaderPromise = Promise.all([
+    typeof window.html2canvas === "function"
+      ? Promise.resolve()
+      : loadExternalScript(
+          "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js",
+          "data-uv-html2canvas"
+        ),
+    typeof window.jspdf?.jsPDF === "function"
+      ? Promise.resolve()
+      : loadExternalScript(
+          "https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js",
+          "data-uv-jspdf"
+        ),
+  ])
+    .then(() => {
+      const h2c = window.html2canvas;
+      const JsPdfCtor = window.jspdf?.jsPDF;
+      if (typeof h2c !== "function" || typeof JsPdfCtor !== "function") {
+        throw new Error("PDF generator libraries unavailable");
+      }
+      return { html2canvas: h2c, jsPDF: JsPdfCtor };
+    })
+    .catch((err) => {
+      pdfLibsLoaderPromise = null;
+      throw err;
+    });
+
+  return pdfLibsLoaderPromise;
 }
 
 function buildSafePaperFilename(paper) {
@@ -1305,19 +1329,27 @@ function triggerBlobDownload(blob, filename) {
   }, 4000);
 }
 
-function downloadStandaloneExamHtml(paper, sheetEl) {
-  const clone = sheetEl.cloneNode(true);
-  clone.querySelectorAll("img").forEach((img) => {
+function inlineSheetImages(rootEl, sourceSheet) {
+  const srcImgs = sourceSheet ? [...sourceSheet.querySelectorAll("img")] : [];
+  rootEl.querySelectorAll("img").forEach((img, idx) => {
     try {
-      const c = document.createElement("canvas");
-      if (img.naturalWidth && img.naturalHeight) {
-        c.width = img.naturalWidth;
-        c.height = img.naturalHeight;
-        c.getContext("2d")?.drawImage(img, 0, 0);
+      const ref = srcImgs[idx] || img;
+      const w = ref.naturalWidth || img.naturalWidth;
+      const h = ref.naturalHeight || img.naturalHeight;
+      if (w && h) {
+        const c = document.createElement("canvas");
+        c.width = w;
+        c.height = h;
+        c.getContext("2d")?.drawImage(ref, 0, 0);
         img.src = c.toDataURL("image/png");
       }
     } catch {}
   });
+}
+
+function downloadStandaloneExamHtml(paper, sheetEl) {
+  const clone = sheetEl.cloneNode(true);
+  inlineSheetImages(clone, sheetEl);
   const docTitle = buildSafePaperFilename(paper);
   const htmlDoc = `<!doctype html>
 <html lang="en">
@@ -1336,12 +1368,14 @@ function downloadStandaloneExamHtml(paper, sheetEl) {
   .pdf-course-line { margin: 12px 0 2px; font-size: 1.08rem; font-weight: 700; color: #0f172a; }
   .pdf-notes-line { margin: 8px auto 0; font-size: 0.9rem; font-style: italic; color: #475569; }
   .exam-sec-head { margin: 22px 0 10px; padding-bottom: 4px; border-bottom: 1px solid #cbd5e1; font-size: 0.98rem; font-weight: 700; text-transform: uppercase; color: #0f172a; }
-  .exam-q-head { display: grid; grid-template-columns: auto 1fr; gap: 10px; margin: 18px 0 8px; }
+  .exam-q-head { display: flex; align-items: baseline; gap: 10px; margin: 18px 0 8px; }
   .exam-q-head:not(:first-child) { padding-top: 14px; border-top: 1px solid #e2e8f0; }
-  .exam-q-num, .exam-mcq-key { font-weight: 700; color: #0f172a; white-space: nowrap; }
-  .exam-subq, .exam-bullet { display: grid; grid-template-columns: auto 1fr; gap: 10px; margin: 8px 0 8px 24px; }
+  .exam-q-num, .exam-mcq-key { font-weight: 700; color: #0f172a; white-space: nowrap; flex: 0 0 auto; }
+  .exam-subq, .exam-bullet { display: flex; align-items: baseline; gap: 10px; margin: 8px 0 8px 24px; }
   .exam-mcq-list { display: grid; gap: 7px; margin: 10px 0 10px 24px; }
-  .exam-mcq-opt { display: grid; grid-template-columns: 28px 1fr; gap: 8px; }
+  .exam-mcq-opt { display: flex; align-items: baseline; gap: 8px; }
+  .exam-mcq-key { min-width: 24px; }
+  .exam-q-text, .exam-subq-body, .exam-mcq-val { flex: 1 1 0%; min-width: 0; }
   .exam-answer-line { margin: 8px 0 6px 24px; padding: 6px 11px; background: #f8fafc; border-left: 3px solid #1d4ed8; font-size: 0.94em; }
   .exam-answer-tag { font-weight: 700; text-transform: uppercase; color: #1e40af; margin-right: 6px; }
   .exam-marks { font-size: 0.82em; font-weight: 600; color: #334155; }
@@ -1352,6 +1386,115 @@ function downloadStandaloneExamHtml(paper, sheetEl) {
 <body>${clone.outerHTML}</body>
 </html>`;
   triggerBlobDownload(new Blob([htmlDoc], { type: "text/html;charset=utf-8" }), `${docTitle}.html`);
+}
+
+function ensurePdfExportStyles() {
+  if (document.getElementById("uvPdfExportStyles")) return;
+  const style = document.createElement("style");
+  style.id = "uvPdfExportStyles";
+  style.textContent = `
+    .uv-pdf-export-page {
+      width: 696px;
+      margin: 0;
+      padding: 0;
+      background: #ffffff;
+      color: #111827;
+      font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+      font-size: 15.5px;
+      line-height: 1.66;
+      text-align: left;
+      box-sizing: border-box;
+      overflow: hidden;
+    }
+    .uv-pdf-export-page * {
+      box-sizing: border-box;
+    }
+    .uv-pdf-export-page .pdf-masthead {
+      position: static !important;
+      display: block !important;
+      text-align: center !important;
+      padding: 0 0 14px !important;
+      margin: 0 0 18px !important;
+      background: transparent !important;
+      border: 0 !important;
+      border-bottom: 2px solid #0f172a !important;
+    }
+    .uv-pdf-export-page .pdf-masthead-top {
+      display: flex !important;
+      flex-direction: column !important;
+      align-items: center !important;
+      gap: 6px !important;
+    }
+    .uv-pdf-export-page .pdf-crest {
+      width: 44px !important;
+      height: auto !important;
+      display: block !important;
+    }
+    .uv-pdf-export-page .exam-q-head,
+    .uv-pdf-export-page .exam-subq,
+    .uv-pdf-export-page .exam-bullet,
+    .uv-pdf-export-page .exam-mcq-opt {
+      display: flex !important;
+      flex-direction: row !important;
+      align-items: baseline !important;
+      gap: 10px !important;
+    }
+    .uv-pdf-export-page .exam-q-num,
+    .uv-pdf-export-page .exam-subq-label,
+    .uv-pdf-export-page .exam-bullet-dot,
+    .uv-pdf-export-page .exam-mcq-key {
+      flex: 0 0 auto !important;
+    }
+    .uv-pdf-export-page .exam-mcq-key {
+      min-width: 24px !important;
+    }
+    .uv-pdf-export-page .exam-q-text,
+    .uv-pdf-export-page .exam-subq-body,
+    .uv-pdf-export-page .exam-mcq-val {
+      flex: 1 1 0% !important;
+      min-width: 0 !important;
+    }
+    .uv-pdf-export-page .exam-mcq-opt {
+      margin: 5px 0 5px 24px !important;
+    }
+    .uv-pdf-export-page .katex-mathml {
+      display: none !important;
+    }
+    .uv-pdf-export-page .katex-display {
+      overflow: visible !important;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
+function collectExportBlocks(sheet) {
+  const blocks = [];
+  const masthead = sheet.querySelector("#readerMasthead");
+  if (masthead && !masthead.hidden) {
+    const mClone = masthead.cloneNode(true);
+    mClone.removeAttribute("id");
+    mClone.querySelectorAll("[id]").forEach((el) => el.removeAttribute("id"));
+    inlineSheetImages(mClone, masthead);
+    blocks.push(mClone);
+  }
+
+  const rb = sheet.querySelector("#rb");
+  if (rb) {
+    Array.from(rb.children).forEach((child) => {
+      if (child.classList.contains("exam-mcq-list")) {
+        Array.from(child.children).forEach((opt) => {
+          blocks.push(opt.cloneNode(true));
+        });
+      } else {
+        blocks.push(child.cloneNode(true));
+      }
+    });
+  }
+
+  blocks.forEach((node) => {
+    node.querySelectorAll(".katex-mathml").forEach((m) => m.remove());
+  });
+  return blocks;
 }
 
 async function downloadCurrentPaper() {
@@ -1369,44 +1512,143 @@ async function downloadCurrentPaper() {
     if (document.fonts?.ready) {
       await Promise.race([document.fonts.ready, new Promise((r) => setTimeout(r, 1500))]);
     }
-    const html2pdfFn = await ensureHtml2PdfLoaded();
-    const baseName = buildSafePaperFilename(cur);
+    const { html2canvas, jsPDF } = await ensurePdfLibsLoaded();
+    ensurePdfExportStyles();
+
+    const PAGE_W_PX = 696;
+    const PAGE_H_PX = 985;
+    const SCALE = 2;
+
+    const blocks = collectExportBlocks(sheet);
+    if (!blocks.length) throw new Error("Nothing to export");
 
     host = document.createElement("div");
+    host.id = "uvPdfExportHost";
     host.style.cssText =
-      "position:fixed;left:-10000px;top:0;width:740px;background:#ffffff;z-index:-1;pointer-events:none;";
-
-    const exportSheet = sheet.cloneNode(true);
-    exportSheet.removeAttribute("id");
-    exportSheet.style.cssText =
-      "max-width:none;width:740px;margin:0;padding:32px 38px;border:0;border-radius:0;box-shadow:none;background:#ffffff;color:#111827;";
-    // Remove hidden MathML duplicates so html2canvas renders crisp KaTeX glyphs only once
-    exportSheet.querySelectorAll(".katex-mathml").forEach((el) => el.remove());
-
-    host.appendChild(exportSheet);
+      "position:fixed;left:0;top:0;width:696px;background:#ffffff;opacity:0;pointer-events:none;z-index:-9999;";
     document.body.appendChild(host);
 
-    await html2pdfFn()
-      .set({
-        margin: [12, 12, 14, 12],
-        filename: `${baseName}.pdf`,
-        image: { type: "jpeg", quality: 0.96 },
-        html2canvas: {
-          scale: 2,
-          useCORS: true,
-          backgroundColor: "#ffffff",
-          scrollX: 0,
-          scrollY: 0,
-          windowWidth: 740,
+    // Measure every block cleanly at exact 696px export width
+    const measurePage = document.createElement("div");
+    measurePage.className = "uv-pdf-export-page";
+    host.appendChild(measurePage);
+
+    const measured = blocks.map((node) => {
+      measurePage.appendChild(node);
+      const cs = getComputedStyle(node);
+      const mt = parseFloat(cs.marginTop) || 0;
+      const mb = parseFloat(cs.marginBottom) || 0;
+      const h = Math.ceil(node.getBoundingClientRect().height + mt + mb);
+      return { node, height: h };
+    });
+    measurePage.remove();
+
+    // Group measured blocks into A4 pages without slicing lines across page breaks
+    const pageGroups = [];
+    let currentGroup = [];
+    let currentY = 0;
+
+    measured.forEach((item, idx) => {
+      const { node, height } = item;
+      const isHeading =
+        node.classList.contains("exam-sec-head") || node.classList.contains("exam-q-head");
+      const nextHeight = measured[idx + 1]?.height || 0;
+      const effectiveMin = isHeading ? height + Math.min(nextHeight, 90) : height;
+
+      if (currentGroup.length > 0 && currentY + effectiveMin > PAGE_H_PX) {
+        pageGroups.push(currentGroup);
+        currentGroup = [node];
+        currentY = height;
+      } else {
+        currentGroup.push(node);
+        currentY += height;
+      }
+    });
+    if (currentGroup.length) pageGroups.push(currentGroup);
+
+    const pageEls = pageGroups.map((group) => {
+      const pageEl = document.createElement("div");
+      pageEl.className = "uv-pdf-export-page";
+      group.forEach((node) => pageEl.appendChild(node));
+      host.appendChild(pageEl);
+      return pageEl;
+    });
+
+    const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait", compress: true });
+    const baseName = buildSafePaperFilename(cur);
+    const footerCourse = `KNUST UniVault · ${cur.course_code || "Exam Paper"}${
+      cur.year ? ` (${cur.year}${cur.semester ? " Sem " + cur.semester : ""})` : ""
+    }`;
+
+    const renderPageCanvas = async (pageEl) =>
+      html2canvas(pageEl, {
+        scale: SCALE,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        width: PAGE_W_PX,
+        windowWidth: PAGE_W_PX,
+        scrollX: 0,
+        scrollY: 0,
+        imageTimeout: 0,
+        logging: false,
+        onclone: (clonedDoc, clonedEl) => {
+          clonedDoc.documentElement.style.cssText =
+            "margin:0!important;padding:0!important;width:696px!important;height:auto!important;overflow:visible!important;background:#ffffff!important;color-scheme:light!important;";
+          clonedDoc.body.style.cssText =
+            "margin:0!important;padding:0!important;width:696px!important;height:auto!important;overflow:visible!important;background:#ffffff!important;position:static!important;";
+          const clonedHost = clonedDoc.getElementById("uvPdfExportHost");
+          Array.from(clonedDoc.body.children).forEach((child) => {
+            if (child !== clonedHost) child.style.setProperty("display", "none", "important");
+          });
+          if (clonedHost) {
+            clonedHost.style.cssText =
+              "position:static!important;opacity:1!important;visibility:visible!important;width:696px!important;margin:0!important;padding:0!important;background:#ffffff!important;z-index:auto!important;";
+            Array.from(clonedHost.children).forEach((ch) => {
+              if (ch !== clonedEl) ch.style.setProperty("display", "none", "important");
+            });
+          }
         },
-        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-        pagebreak: {
-          mode: ["css", "legacy"],
-          avoid: [".exam-q-head", ".exam-subq", ".exam-mcq-opt", ".exam-answer-line", ".pdf-masthead"],
-        },
-      })
-      .from(exportSheet)
-      .save();
+      });
+
+    const renderedPages = [];
+    for (let i = 0; i < pageEls.length; i++) {
+      if (labelEl) labelEl.textContent = `Preparing PDF (${i + 1}/${pageEls.length})...`;
+      const canvas = await renderPageCanvas(pageEls[i]);
+      const slicePx = PAGE_H_PX * SCALE;
+      if (canvas.height <= slicePx + 40) {
+        renderedPages.push(canvas);
+      } else {
+        for (let sy = 0; sy < canvas.height; sy += slicePx) {
+          const sh = Math.min(slicePx, canvas.height - sy);
+          const sc = document.createElement("canvas");
+          sc.width = canvas.width;
+          sc.height = sh;
+          const sctx = sc.getContext("2d");
+          if (sctx) {
+            sctx.fillStyle = "#ffffff";
+            sctx.fillRect(0, 0, sc.width, sc.height);
+            sctx.drawImage(canvas, 0, sy, canvas.width, sh, 0, 0, canvas.width, sh);
+          }
+          renderedPages.push(sc);
+        }
+      }
+    }
+
+    const totalPages = renderedPages.length;
+    renderedPages.forEach((canvas, idx) => {
+      if (idx > 0) pdf.addPage();
+      const imgW = 186;
+      const imgH = Math.min(272, (canvas.height * imgW) / canvas.width);
+      pdf.addImage(canvas.toDataURL("image/png"), "PNG", 12, 11, imgW, imgH, undefined, "FAST");
+
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(8.5);
+      pdf.setTextColor(100, 116, 139);
+      pdf.text(footerCourse, 12, 289);
+      pdf.text(`Page ${idx + 1} of ${totalPages}`, 198, 289, { align: "right" });
+    });
+
+    triggerBlobDownload(pdf.output("blob"), `${baseName}.pdf`);
   } catch (err) {
     console.warn("PDF export failed, falling back to printable sheet HTML:", err);
     downloadStandaloneExamHtml(cur, sheet);
