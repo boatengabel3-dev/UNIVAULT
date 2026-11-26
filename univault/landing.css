@@ -514,7 +514,7 @@ header .hdr-actions .cta {
 
 .tgrid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
   gap: 20px;
 }
 
@@ -761,6 +761,47 @@ header ~ .wrap {
 
 #msg.ok {
   color: #6ee7b7;
+}
+
+@media (max-width: 560px) {
+  .hero {
+    padding: 3.5vh 0 2.5vh;
+  }
+
+  .crest {
+    width: 82px;
+  }
+
+  .hero p {
+    font-size: 0.98rem;
+    margin-bottom: 20px;
+  }
+
+  .hero a,
+  .cta {
+    padding: 11px 18px;
+    font-size: 0.94rem;
+  }
+
+  header .hdr-actions .cta {
+    padding: 7px 11px;
+    font-size: 0.84rem;
+  }
+
+  .sec-head-row .story-btn {
+    width: 100%;
+    text-align: center;
+  }
+
+  .search-sec,
+  .testimonials {
+    margin-top: 48px;
+    padding-top: 34px;
+  }
+
+  .site-foot {
+    margin-top: 48px;
+  }
 }
 
 /* Desktop View Readability, Layout Balance & 3D Depth */

@@ -117,12 +117,17 @@
   margin: 0;
 }
 
+html,
+body {
+  max-width: 100%;
+  overflow-x: clip;
+}
+
 body {
   background: var(--bg-grad);
   color: var(--ink);
   font: 16px/1.6 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
   min-height: 100vh;
-  overflow-x: hidden;
   transition: background-color 0.2s ease, color 0.2s ease;
 }
 
@@ -292,7 +297,8 @@ nav {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  flex-shrink: 0;
+  min-width: 0;
+  flex-shrink: 1;
 }
 
 .hdr-pro-badge {
@@ -522,7 +528,16 @@ nav {
   display: inline-flex;
   align-items: center;
   gap: 10px;
-  flex-shrink: 0;
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.admin-hdr-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
 }
 
 .acct-status {
@@ -562,6 +577,8 @@ select,
 textarea {
   font: inherit;
   color: var(--ink);
+  max-width: 100%;
+  min-width: 0;
   border-radius: 10px;
   border: 1px solid var(--b);
   background: var(--g);
@@ -760,21 +777,27 @@ h1 {
   gap: 10px;
   flex-wrap: wrap;
   margin: 12px 0;
+  min-width: 0;
 }
 
 .bar input {
-  flex: 1;
-  min-width: 180px;
+  flex: 1 1 180px;
+  min-width: 0;
+  max-width: 100%;
   background: var(--input-bg);
 }
 
 .bar select {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  text-overflow: ellipsis;
   background: var(--input-bg);
 }
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(290px, 100%), 1fr));
   gap: 20px;
 }
 
@@ -1323,6 +1346,12 @@ dialog {
 .form {
   display: grid;
   gap: 12px;
+  min-width: 0;
+}
+
+.form > * {
+  min-width: 0;
+  max-width: 100%;
 }
 
 textarea {
@@ -1403,7 +1432,7 @@ pre {
 
 .stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(195px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(185px, 100%), 1fr));
   gap: 16px;
   margin: 18px 0 26px;
 }
@@ -1502,9 +1531,13 @@ pre {
 
 .two-col {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(320px, 100%), 1fr));
   gap: 20px;
   align-items: start;
+}
+
+.two-col > * {
+  min-width: 0;
 }
 
 .seg {
@@ -2031,7 +2064,9 @@ pre {
 }
 
 .attach-actions select {
-  max-width: 300px;
+  width: 100%;
+  max-width: min(300px, 100%);
+  min-width: 0;
   padding: 7px 10px;
   font-size: 0.86rem;
 }
@@ -3247,7 +3282,7 @@ dialog.pdf-reader-dialog::backdrop {
 
 .prem-skel-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 14px;
   margin-top: 6px;
 }
@@ -3389,7 +3424,7 @@ dialog.pdf-reader-dialog::backdrop {
 
 .prem-features-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 14px;
   margin-bottom: 18px;
 }
@@ -3440,8 +3475,12 @@ dialog.pdf-reader-dialog::backdrop {
 
 .prem-panels-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(290px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(290px, 100%), 1fr));
   gap: 16px;
+}
+
+.prem-panels-grid > * {
+  min-width: 0;
 }
 
 .prem-actions-card,
@@ -3453,6 +3492,7 @@ dialog.pdf-reader-dialog::backdrop {
 
 .prem-card-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
@@ -3485,25 +3525,60 @@ dialog.pdf-reader-dialog::backdrop {
   gap: 8px;
 }
 
+.prem-recent-empty {
+  margin: 0;
+  color: var(--mut);
+  font-size: 0.88rem;
+}
+
 .prem-recent-item {
+  width: 100%;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: 6px 12px;
   padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid var(--b-soft);
   background: rgba(8, 15, 28, 0.35);
+  color: var(--body-soft);
+  font-weight: 500;
+  text-align: left;
+  white-space: normal;
+}
+
+.prem-recent-item:hover {
+  background: var(--panel-hover);
+  border-color: var(--c-border);
 }
 
 :root[data-theme="light"] .prem-recent-item {
-  background: rgba(241, 245, 249, 0.8);
+  background: rgba(241, 245, 249, 0.85);
+}
+
+:root[data-theme="light"] .prem-recent-item:hover {
+  background: #ffffff;
+}
+
+.prem-recent-main {
+  min-width: 0;
+  flex: 1 1 180px;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: var(--body-soft);
 }
 
 .prem-recent-item strong {
-  display: block;
-  font-size: 0.9rem;
+  display: inline;
+  font-size: 0.92rem;
   color: var(--head);
+}
+
+.prem-recent-meta {
+  color: var(--mut);
+  font-size: 0.8rem;
+  white-space: nowrap;
 }
 
 .prem-recent-item small {
@@ -3605,11 +3680,12 @@ dialog.pdf-reader-dialog::backdrop {
 /* Free User Blurred Lock Overlay Inside Reader */
 .pdf-lock-zone {
   position: relative;
+  display: grid;
+  align-items: center;
   margin-top: 18px;
   border-top: 1px dashed #cbd5e1;
   padding-top: 18px;
   min-height: 240px;
-  overflow: hidden;
 }
 
 .pdf-lock-zone[hidden] {
@@ -3617,6 +3693,7 @@ dialog.pdf-reader-dialog::backdrop {
 }
 
 .pdf-blurred-sample {
+  grid-area: 1 / 1;
   filter: blur(5.5px);
   opacity: 0.42;
   user-select: none;
@@ -3628,11 +3705,12 @@ dialog.pdf-reader-dialog::backdrop {
 }
 
 .pdf-lock-overlay {
-  position: absolute;
-  inset: 0;
+  grid-area: 1 / 1;
+  position: relative;
+  z-index: 1;
   display: grid;
   place-items: center;
-  padding: 16px;
+  padding: 16px 10px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.45) 0%, rgba(255, 255, 255, 0.96) 55%);
 }
 
@@ -3796,21 +3874,189 @@ dialog.pdf-reader-dialog::backdrop {
 }
 
 @media (max-width: 640px) {
+  header {
+    gap: 10px;
+    padding: calc(10px + env(safe-area-inset-top, 0px)) max(14px, env(safe-area-inset-right, 0px)) 10px max(14px, env(safe-area-inset-left, 0px));
+  }
+
+  header.app-header {
+    padding: calc(10px + env(safe-area-inset-top, 0px)) max(14px, env(safe-area-inset-right, 0px)) 10px max(14px, env(safe-area-inset-left, 0px));
+  }
+
+  .hdr-right,
+  .hdr-actions {
+    gap: 6px;
+  }
+
   .hdr-user-name {
-    max-width: 82px;
-    font-size: 0.8rem;
+    display: none;
+  }
+
+  main {
+    padding: 20px max(14px, env(safe-area-inset-right, 0px)) calc(48px + env(safe-area-inset-bottom, 0px)) max(14px, env(safe-area-inset-left, 0px));
+  }
+
+  h1 {
+    font-size: clamp(1.55rem, 6.4vw, 2rem);
+    margin-bottom: 10px;
+  }
+
+  .card,
+  .glass {
+    padding: 18px 16px;
+  }
+
+  .home-hero {
+    padding: 18px 16px;
+    gap: 16px;
+    margin-bottom: 16px;
+  }
+
+  .home-actions > button {
+    flex: 1 1 auto;
+    white-space: normal;
+  }
+
+  .filter-panel {
+    padding: 14px;
+    margin-bottom: 16px;
+  }
+
+  .bar select,
+  .bar input:not(#msg) {
+    width: 100%;
+    flex: 1 1 100%;
+  }
+
+  .chat-composer input {
+    flex: 1 1 160px;
+  }
+
+  .row-item {
+    padding: 14px;
+  }
+
+  .row-main {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .price h2 {
+    font-size: clamp(2.1rem, 8vw, 2.75rem);
+  }
+
+  .upgrade-modal-price {
+    font-size: clamp(1.6rem, 7vw, 1.9rem);
   }
 
   .prem-hero {
     padding: 16px;
+    gap: 14px;
   }
 
-  .prem-quick-btns button {
-    flex: 1 1 100%;
+  .prem-hero-actions,
+  .prem-expiring-banner button,
+  .prem-expired-banner button,
+  .prem-sub-foot button,
+  .prem-quick-btns button,
+  .pdf-lock-actions button,
+  .upgrade-modal-actions button {
+    width: 100%;
+    white-space: normal;
+    text-align: center;
+    justify-content: center;
+    line-height: 1.3;
+  }
+
+  .prem-hero-actions a.admin-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .prem-expiring-banner,
+  .prem-expired-banner {
+    padding: 14px;
+  }
+
+  .prem-sub-dl > div {
+    flex-wrap: wrap;
+    gap: 4px 12px;
+  }
+
+  .chat-toolbar-btns button,
+  .form button,
+  .bar button {
+    white-space: normal;
+    line-height: 1.3;
+  }
+
+  .pdf-lock-overlay {
+    padding: 12px 0;
   }
 
   .pdf-lock-card {
-    padding: 16px;
+    padding: 16px 14px;
+  }
+
+  .pdf-reader-foot .bar {
+    gap: 8px;
+  }
+
+  .pdf-reader-foot .bar button {
+    flex: 1 1 auto;
+    padding: 9px 10px;
+    font-size: 0.85rem;
+    white-space: normal;
+  }
+
+  dialog:not(.pdf-reader-dialog) {
+    width: min(500px, calc(100vw - 24px));
+    max-width: calc(100vw - 24px);
+    max-height: 90dvh;
+    overflow-y: auto;
+    padding: 18px 16px;
+  }
+
+  .admin-hdr-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+@media (max-width: 390px) {
+  .logo {
+    gap: 5px;
+    font-size: 0.96rem;
+  }
+
+  .logo-knust {
+    font-size: 0.82rem;
+  }
+
+  .nav-crest,
+  .site-logo {
+    height: 22px;
+  }
+
+  .theme-toggle,
+  .menu-btn {
+    width: 38px;
+    height: 38px;
+    min-width: 38px;
+  }
+
+  .uv-prem-pill.is-compact {
+    padding: 3px 7px;
+    font-size: 0.7rem;
+  }
+
+  .uv-upgrade-link {
+    padding: 3px 8px;
+    font-size: 0.72rem;
+  }
+
+  .uv-badge-skel {
+    width: 60px;
   }
 }
 

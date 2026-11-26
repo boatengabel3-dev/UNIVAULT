@@ -632,6 +632,21 @@ body.auth-page {
   }
 }
 
+@media (max-width: 480px) {
+  .auth-header {
+    gap: 10px;
+    padding: 8px 14px;
+  }
+
+  .auth-header-right {
+    gap: 8px;
+  }
+
+  .auth-header-link {
+    font-size: 0.84rem;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .auth-submit,
   .auth-tabs button,
