@@ -238,13 +238,22 @@
         if(!uid)return;
         const link=$("#homeAuthLink");
         if(link){link.href="app.html";link.textContent="Open App";}
-        const {data:prof}=await sb.from("profiles").select("premium_until").eq("id",uid).maybeSingle();
+        const [{data:prof},{data:adm}]=await Promise.all([
+          sb.from("profiles").select("premium_until").eq("id",uid).maybeSingle(),
+          sb.from("admins").select("user_id").eq("user_id",uid).maybeSingle()
+        ]);
         const badge=$("#homeProBadge");
-        if(badge&&prof?.premium_until&&new Date(prof.premium_until)>new Date()){
-          const until=new Date(prof.premium_until).toLocaleDateString();
+        const hasPaid=Boolean(prof?.premium_until&&new Date(prof.premium_until)>new Date());
+        if(badge&&(hasPaid||adm)){
           badge.hidden=false;
-          badge.title=`Pro active until ${until}`;
-          badge.setAttribute("aria-label",`Pro active until ${until}`);
+          if(hasPaid){
+            const until=new Date(prof.premium_until).toLocaleDateString();
+            badge.title=`Pro active until ${until}`;
+            badge.setAttribute("aria-label",`Pro active until ${until}`);
+          }else{
+            badge.title="Pro account active (Admin)";
+            badge.setAttribute("aria-label","Pro account active (Admin)");
+          }
         }
       }).catch(()=>{});
   }

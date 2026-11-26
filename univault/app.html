@@ -13,7 +13,7 @@
 <div class="drawer-acct"><div class="drawer-acct-row"><span>Account</span><small id="badge" class="acct-status"></small></div><small id="drawerProg" class="acct-prog" hidden></small></div>
 <nav aria-label="Main navigation"><button type="button" data-v="browse" class="on">Questions</button><button type="button" data-v="dashboard">Dashboard</button><button type="button" data-v="chat">AI Tutor</button><button type="button" data-v="quiz">Quiz</button><button type="button" data-v="upload">Upload &amp; Earn</button><button type="button" data-v="wallet">Wallet</button><button type="button" data-v="pricing">Premium</button></nav>
 <div class="drawer-sep"></div>
-<div class="drawer-footer"><button id="installAppBtn" type="button" class="ghost drawer-out" data-pwa-install hidden>Install App</button><button id="startTourBtn" type="button" class="ghost drawer-out">Website Tour</button><button id="out" type="button" class="ghost drawer-out">Sign out</button></div>
+<div class="drawer-footer"><button id="installAppBtn" type="button" class="ghost drawer-out" data-pwa-install hidden>Install App</button><button id="startTourBtn" type="button" class="ghost drawer-out">Website Tour</button><a id="drawerAdminLink" href="admin.html" class="admin-btn" hidden>Admin Dashboard</a><button id="out" type="button" class="ghost drawer-out">Sign out</button></div>
 </div>
 </header>
 <main>
@@ -142,7 +142,7 @@
 </div>
 </section>
 <section id="wallet" hidden><h1>Wallet</h1><div class="glass form"><h2 id="bal"></h2><input id="wn" placeholder="Mobile Money account name"><input id="wm" placeholder="Mobile Money number"><select id="wk"><option value="MTN">MTN</option><option value="VOD">Telecel</option><option value="ATL">AirtelTigo</option></select><button id="wd" type="button">Withdraw (min GH₵10)</button><div id="pays"></div></div></section>
-<section id="pricing" hidden><h1>Go Premium</h1><div class="glass price"><p id="pricingNotice" class="browse-meta" hidden style="margin:0 0 12px;color:var(--warn-ink)"></p><h2 id="priceDisplay">GH₵ 30 <small>/ month</small></h2><p id="priceDesc">Read every past question and enjoy unlimited AI tutor, predictions and quizzes.</p><button id="pay" type="button">Pay with Paystack</button></div></section>
+<section id="pricing" hidden><h1 id="pricingTitle">Go Premium</h1><div class="glass price"><p id="pricingNotice" class="browse-meta" hidden style="margin:0 0 12px;color:var(--warn-ink)"></p><h2 id="priceDisplay">GH₵ 30 <small>/ month</small></h2><p id="priceDesc">Read every past question and enjoy unlimited AI tutor, predictions and quizzes.</p><button id="pay" type="button">Pay with Paystack</button><a id="pricingAdminLink" href="admin.html" class="admin-btn" hidden style="justify-self:center">Open Admin Dashboard</a></div></section>
 </main>
 <dialog id="reader" class="pdf-reader-dialog" aria-labelledby="rt">
   <div class="pdf-reader-bar">

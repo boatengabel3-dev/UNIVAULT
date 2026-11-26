@@ -318,45 +318,79 @@ function updatePricingAndQuotaUi(remainingAiOverride, remainingQuestionsOverride
     remainingQuestions = Math.max(0, freeQuestionsLimit - unlockedCount);
   }
 
+  const hasPaidPro = Boolean(P.paid || (P.premium_until && new Date(P.premium_until) > new Date()));
+  const hasPro = Boolean(hasPaidPro || isAdminUser || P.on);
+  P.paid = hasPaidPro;
+  P.on = hasPro;
+
   if ($("#headerProBadge")) {
-    const isPro = Boolean(P.on);
-    $("#headerProBadge").hidden = !isPro;
-    if (isPro && P.premium_until) {
+    $("#headerProBadge").hidden = !hasPro;
+    if (hasPaidPro && P.premium_until) {
       const until = new Date(P.premium_until).toLocaleDateString();
       $("#headerProBadge").title = `Pro active until ${until}`;
       $("#headerProBadge").setAttribute("aria-label", `Pro active until ${until}`);
+    } else if (isAdminUser) {
+      $("#headerProBadge").title = "Pro account active (Admin)";
+      $("#headerProBadge").setAttribute("aria-label", "Pro account active (Admin)");
     }
   }
 
+  if ($("#drawerAdminLink")) {
+    $("#drawerAdminLink").hidden = !isAdminUser;
+  }
+
   if ($("#badge")) {
-    $("#badge").textContent = P.on
-      ? "Pro until " + new Date(P.premium_until).toLocaleDateString()
+    $("#badge").textContent = hasPaidPro && P.premium_until
+      ? `Pro until ${new Date(P.premium_until).toLocaleDateString()}${isAdminUser ? " · Admin" : ""}`
       : isAdminUser
-        ? "Admin"
+        ? "Pro · Admin"
         : freeQuestionsLimit > 0 || freeLimit > 0
           ? `Free · ${remainingQuestions} Q · ${remaining} AI left`
           : "Free";
   }
 
+  if ($("#pricingTitle")) {
+    $("#pricingTitle").textContent = hasPro ? "Premium Active" : "Go Premium";
+  }
   if ($("#priceDisplay")) {
-    $("#priceDisplay").innerHTML = `GH₵ ${esc(priceLabel)} <small>/ month</small>`;
+    if (isAdminUser) {
+      $("#priceDisplay").innerHTML = hasPaidPro && P.premium_until
+        ? `PRO <small>· until ${esc(new Date(P.premium_until).toLocaleDateString())}</small>`
+        : "PRO <small>· Admin</small>";
+    } else {
+      $("#priceDisplay").innerHTML = `GH₵ ${esc(priceLabel)} <small>/ month</small>`;
+    }
   }
   if ($("#priceDesc")) {
-    const parts = [];
-    if (freeQuestionsLimit > 0) {
-      parts.push(`${freeQuestionsLimit} free past question${freeQuestionsLimit === 1 ? "" : "s"}`);
+    if (isAdminUser) {
+      $("#priceDesc").textContent =
+        "Your Admin account automatically includes full Premium access — read and download every past question, plus unlimited AI Tutor, predictions, and quizzes.";
+    } else {
+      const parts = [];
+      if (freeQuestionsLimit > 0) {
+        parts.push(`${freeQuestionsLimit} free past question${freeQuestionsLimit === 1 ? "" : "s"}`);
+      }
+      if (freeLimit > 0) {
+        parts.push(`${freeLimit} free AI tutor use${freeLimit === 1 ? "" : "s"}`);
+      }
+      $("#priceDesc").textContent = parts.length
+        ? `Read every past question and enjoy unlimited AI tutor, predictions and quizzes. Free accounts include ${parts.join(" and ")} before upgrading to Pro.`
+        : "Read every past question and enjoy unlimited AI tutor, predictions and quizzes.";
     }
-    if (freeLimit > 0) {
-      parts.push(`${freeLimit} free AI tutor use${freeLimit === 1 ? "" : "s"}`);
+  }
+  if ($("#pay")) {
+    $("#pay").hidden = Boolean(isAdminUser);
+    if (!isAdminUser) {
+      $("#pay").textContent = hasPaidPro ? "Extend Pro with Paystack" : "Pay with Paystack";
     }
-    $("#priceDesc").textContent = parts.length
-      ? `Read every past question and enjoy unlimited AI tutor, predictions and quizzes. Free accounts include ${parts.join(" and ")} before upgrading to Pro.`
-      : "Read every past question and enjoy unlimited AI tutor, predictions and quizzes.";
+  }
+  if ($("#pricingAdminLink")) {
+    $("#pricingAdminLink").hidden = !isAdminUser;
   }
 
   const qQuotaEl = $("#questionsQuotaLabel");
   if (qQuotaEl) {
-    if (P.on || isAdminUser) {
+    if (hasPro) {
       qQuotaEl.hidden = true;
       qQuotaEl.textContent = "";
     } else if (freeQuestionsLimit === 0) {
@@ -373,10 +407,10 @@ function updatePricingAndQuotaUi(remainingAiOverride, remainingQuestionsOverride
 
   const quotaEl = $("#aiQuotaLabel");
   if (quotaEl) {
-    if (P.on) {
+    if (isAdminUser && !hasPaidPro) {
+      quotaEl.textContent = "Unlimited AI access (Premium active · Admin)";
+    } else if (hasPro) {
       quotaEl.textContent = "Unlimited AI access (Premium active)";
-    } else if (isAdminUser) {
-      quotaEl.textContent = "Unlimited AI access (Admin)";
     } else if (freeLimit === 0) {
       quotaEl.textContent = `Free AI trial is currently disabled. Upgrade to Premium (GH₵${priceLabel}/month) to use AI Tutor.`;
     } else if (remaining > 0) {
@@ -403,8 +437,9 @@ async function refresh() {
     }
     if (profRes.error && !profRes.data) throw profRes.error;
     P = profRes.data || {};
-    P.on = P.premium_until && new Date(P.premium_until) > new Date();
     isAdminUser = Boolean(adminRes?.data);
+    P.paid = Boolean(P.premium_until && new Date(P.premium_until) > new Date());
+    P.on = Boolean(P.paid || isAdminUser);
     if (settingsRes?.data) {
       appSettings = {
         price_ghs: Number(settingsRes.data.price_ghs) || 30,
@@ -430,8 +465,9 @@ async function refresh() {
     const cached = readOfflineJson("meta");
     if (cached && typeof cached === "object") {
       P = cached.P || {};
-      P.on = P.premium_until && new Date(P.premium_until) > new Date();
       isAdminUser = Boolean(cached.isAdminUser);
+      P.paid = Boolean(P.premium_until && new Date(P.premium_until) > new Date());
+      P.on = Boolean(P.paid || isAdminUser);
       if (cached.appSettings) appSettings = cached.appSettings;
       myPayouts = Array.isArray(cached.myPayouts) ? cached.myPayouts : [];
       myUploads = Array.isArray(cached.myUploads) ? cached.myUploads : [];
@@ -2727,7 +2763,7 @@ function showAiErrorInBubble(bubbleEl, err, retryFn = null) {
   if (bubbleEl._actions) {
     bubbleEl._actions.innerHTML = "";
     bubbleEl._actions.hidden = true;
-    if (isQuotaErr) {
+    if (isQuotaErr && !P.on && !isAdminUser) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.textContent = "Upgrade to Premium";
@@ -3389,6 +3425,7 @@ $("#wd").onclick = async () => {
 };
 
 $("#pay").onclick = () => {
+  if (isAdminUser) return;
   if (typeof PaystackPop === "undefined") {
     return alert("Paystack checkout script failed to load.");
   }

@@ -11,7 +11,7 @@ create table if not exists payouts(id uuid default gen_random_uuid() primary key
 create table if not exists admins(user_id uuid primary key references auth.users on delete cascade);
 alter table questions enable row level security;alter table question_content enable row level security;alter table profiles enable row level security;alter table payments enable row level security;alter table payouts enable row level security;alter table admins enable row level security;
 create or replace function is_admin() returns boolean language sql security definer stable set search_path = public as $$ select exists(select 1 from public.admins where user_id=auth.uid()) $$;
-create or replace function is_premium() returns boolean language sql security definer stable set search_path = public as $$ select exists(select 1 from public.profiles where id=auth.uid() and premium_until>now()) $$;
+create or replace function is_premium() returns boolean language sql security definer stable set search_path = public as $$ select public.is_admin() or exists(select 1 from public.profiles where id=auth.uid() and premium_until>now()) $$;
 drop policy if exists "q read" on questions;
 create policy "q read" on questions for select using(status='approved' or uploader=auth.uid() or is_admin());
 drop policy if exists "content read" on public.question_content;

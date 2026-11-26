@@ -552,6 +552,10 @@ nav {
   background: var(--ghost-hover);
 }
 
+.admin-btn[hidden] {
+  display: none;
+}
+
 button,
 input,
 select,
