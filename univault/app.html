@@ -4,13 +4,13 @@
 <header class="app-header">
 <a href="#browse" id="brandHome" class="logo" style="text-decoration:none;color:inherit"><img class="nav-crest" src="assets/knust-crest.png" alt="KNUST"><span class="logo-knust">KNUST</span><span class="logo-sep" aria-hidden="true"></span><span>Uni<em>Vault</em></span></a>
 <span class="hdr-right">
-<span id="headerProBadge" class="hdr-pro-badge" hidden aria-label="Pro subscriber" title="Pro subscription active"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M12 2l2.9 6.26L22 9.27l-5 4.87L18.18 22 12 18.56 5.82 22 7 14.14l-5-4.87 7.1-1.01L12 2z"/></svg><span>PRO</span></span>
+<span class="hdr-user-wrap"><span id="hdrUserName" class="hdr-user-name" hidden></span><span id="headerProBadge" class="uv-prem-slot"><span class="uv-badge-skel" aria-hidden="true"></span></span></span>
 <span id="activeViewLabel" class="active-view-label">Questions</span>
 <button type="button" class="theme-toggle" data-theme-toggle aria-label="Switch to light mode" aria-pressed="false"></button>
 <button id="menuBtn" type="button" class="menu-btn" aria-label="Open navigation menu" aria-expanded="false" aria-controls="navMenu"><svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><line x1="4" y1="6" x2="20" y2="6"/><line x1="4" y1="12" x2="20" y2="12"/><line x1="4" y1="18" x2="20" y2="18"/></svg></button>
 </span>
 <div id="navMenu" class="nav-drawer" hidden>
-<div class="drawer-acct"><div class="drawer-acct-row"><span>Account</span><small id="badge" class="acct-status"></small></div><small id="drawerProg" class="acct-prog" hidden></small></div>
+<div class="drawer-acct"><div class="drawer-acct-row"><div class="drawer-user-meta"><strong id="drawerUserName" class="drawer-user-name">Account</strong><small id="badge" class="acct-status"></small></div><span id="drawerBadgeSlot" class="uv-prem-slot"><span class="uv-badge-skel" aria-hidden="true"></span></span></div><small id="drawerExpiryMeta" class="acct-prog" hidden></small><small id="drawerProg" class="acct-prog" hidden></small></div>
 <nav aria-label="Main navigation"><button type="button" data-v="browse" class="on">Questions</button><button type="button" data-v="dashboard">Dashboard</button><button type="button" data-v="chat">AI Tutor</button><button type="button" data-v="quiz">Quiz</button><button type="button" data-v="upload">Upload &amp; Earn</button><button type="button" data-v="wallet">Wallet</button><button type="button" data-v="pricing">Premium</button></nav>
 <div class="drawer-sep"></div>
 <div class="drawer-footer"><button id="installAppBtn" type="button" class="ghost drawer-out" data-pwa-install hidden>Install App</button><button id="startTourBtn" type="button" class="ghost drawer-out">Website Tour</button><a id="drawerAdminLink" href="admin.html" class="admin-btn" hidden>Admin Dashboard</a><button id="out" type="button" class="ghost drawer-out">Sign out</button></div>
@@ -30,7 +30,10 @@
 <section id="browse">
 <div class="home-hero">
 <div>
+<div class="home-kicker-row">
 <p class="home-kicker">KNUST Examination Repository</p>
+<span id="browseBadgeSlot" class="uv-prem-slot"><span class="uv-badge-skel" aria-hidden="true"></span></span>
+</div>
 <h1>Past Examination Archive</h1>
 <p class="home-sub">Browse verified past examination papers sorted by department, course code, and academic year, or launch the AI Tutor for step-by-step derivations.</p>
 <p id="activeProgrammeBanner" class="programme-scope-line" hidden></p>
@@ -54,7 +57,13 @@
 <div id="list" class="grid"></div>
 </section>
 <section id="dashboard" hidden>
-<h1>Contributor Dashboard</h1>
+<div class="dash-page-head">
+  <div class="dash-page-title">
+    <h1>Contributor Dashboard</h1>
+    <span id="dashUserLabel" class="dash-user-sub" hidden></span>
+  </div>
+  <span id="dashHeaderBadge" class="uv-prem-slot"><span class="uv-badge-skel" aria-hidden="true"></span></span>
+</div>
 <div class="stats">
 <div class="stat"><small>Total Accumulated Earnings</small><strong id="dashTotalEarned">GH₵0.00</strong></div>
 <div class="stat"><small>Available Wallet Balance</small><strong id="dashBalance">GH₵0.00</strong></div>
@@ -75,8 +84,11 @@
 <section id="chat" hidden>
 <div class="chat-head">
   <div class="chat-head-copy">
-    <h1>AI Tutor</h1>
-    <small id="aiQuotaLabel" class="ai-quota"></small>
+    <div class="chat-title-row">
+      <h1>AI Tutor</h1>
+      <span id="chatHeaderBadge" class="uv-prem-slot"><span class="uv-badge-skel" aria-hidden="true"></span></span>
+    </div>
+    <small id="aiQuotaLabel" class="ai-quota"><span class="uv-line-skel" aria-hidden="true"></span></small>
   </div>
   <div class="chat-head-actions">
     <button id="clearChatBtn" type="button" class="ghost chat-clear-btn">Clear chat</button>
@@ -142,7 +154,127 @@
 </div>
 </section>
 <section id="wallet" hidden><h1>Wallet</h1><div class="glass form"><h2 id="bal"></h2><input id="wn" placeholder="Mobile Money account name"><input id="wm" placeholder="Mobile Money number"><select id="wk"><option value="MTN">MTN</option><option value="VOD">Telecel</option><option value="ATL">AirtelTigo</option></select><button id="wd" type="button">Withdraw (min GH₵10)</button><div id="pays"></div></div></section>
-<section id="pricing" hidden><h1 id="pricingTitle">Go Premium</h1><div class="glass price"><p id="pricingNotice" class="browse-meta" hidden style="margin:0 0 12px;color:var(--warn-ink)"></p><h2 id="priceDisplay">GH₵ 30 <small>/ month</small></h2><p id="priceDesc">Read every past question and enjoy unlimited AI tutor, predictions and quizzes.</p><button id="pay" type="button">Pay with Paystack</button><a id="pricingAdminLink" href="admin.html" class="admin-btn" hidden style="justify-self:center">Open Admin Dashboard</a></div></section>
+<section id="pricing" hidden>
+  <div id="pricingSkeleton" class="prem-skeleton glass" aria-busy="true" aria-label="Loading subscription status">
+    <div class="uv-skel-bar uv-skel-lg"></div>
+    <div class="uv-skel-bar uv-skel-md"></div>
+    <div class="prem-skel-grid">
+      <div class="uv-skel-card"></div>
+      <div class="uv-skel-card"></div>
+    </div>
+  </div>
+
+  <div id="pricingError" class="glass prem-error-card" hidden>
+    <h2>Could not verify subscription status</h2>
+    <p id="pricingErrorMsg">Please check your connection and try again.</p>
+    <button id="pricingRetryBtn" type="button">Retry</button>
+  </div>
+
+  <div id="premiumActiveView" hidden>
+    <div class="prem-hero glass">
+      <div class="prem-hero-copy">
+        <div class="prem-hero-top">
+          <span id="premViewBadge" class="uv-prem-slot"></span>
+          <span id="premRenewalNote" class="prem-renewal-note"></span>
+        </div>
+        <h1 id="premWelcome">Welcome to Premium</h1>
+        <p id="premHeroSub">Your full KNUST exam archive, PDF downloads, and unlimited AI Tutor tools are active.</p>
+      </div>
+      <div class="prem-hero-actions">
+        <button id="premManageBtn" type="button">Manage / Renew</button>
+        <a id="premAdminQuickLink" href="admin.html" class="admin-btn" hidden>Open Admin Console</a>
+      </div>
+    </div>
+
+    <div id="premExpiringBanner" class="prem-expiring-banner" hidden role="status">
+      <div>
+        <strong>Renewal reminder</strong>
+        <p id="premBannerText"></p>
+      </div>
+      <button id="premBannerRenewBtn" type="button">Renew Now</button>
+    </div>
+
+    <div class="prem-features-grid" aria-label="Unlocked Premium benefits">
+      <article class="glass prem-feat-card">
+        <div class="prem-feat-top"><strong>Full Past Paper Reading</strong><span class="prem-state-pill">Unlocked</span></div>
+        <p>Read complete KNUST exam papers with clean LaTeX math formatting and offline A4 PDF downloads.</p>
+      </article>
+      <article class="glass prem-feat-card">
+        <div class="prem-feat-top"><strong>AI Tutor Uses</strong><span class="prem-state-pill">Unlimited</span></div>
+        <p>Ask unlimited step-by-step derivations, voice queries, and uploaded file or media breakdowns.</p>
+      </article>
+      <article class="glass prem-feat-card">
+        <div class="prem-feat-top"><strong>Lecturer-Pattern Predictions</strong><span class="prem-state-pill">Unlocked</span></div>
+        <p>Spot recurring exam topics, mark allocations, and question styles across recent semesters.</p>
+      </article>
+      <article class="glass prem-feat-card">
+        <div class="prem-feat-top"><strong>Custom Quiz Lab</strong><span class="prem-state-pill">Unlocked</span></div>
+        <p>Generate tailored multiple-choice drills with instant grading and concise explanations.</p>
+      </article>
+    </div>
+
+    <div class="prem-panels-grid">
+      <div class="glass prem-actions-card">
+        <div class="prem-card-head">
+          <h2>Quick Actions</h2>
+          <small>Pick up where you left off</small>
+        </div>
+        <div class="prem-quick-btns">
+          <button id="premContinueBtn" type="button">Continue Last Paper</button>
+          <button id="premOpenAiBtn" type="button" class="ghost">Open AI Tutor</button>
+          <button id="premCreateQuizBtn" type="button" class="ghost">Create a Quiz</button>
+        </div>
+        <div class="prem-recent-wrap">
+          <h3>Recently Viewed Papers</h3>
+          <div id="recentPapersList" class="prem-recent-list"></div>
+        </div>
+      </div>
+
+      <div id="premSubCard" class="glass prem-sub-card">
+        <div class="prem-card-head">
+          <h2>Subscription Details</h2>
+          <span id="subStatusPill" class="prem-state-pill">Active</span>
+        </div>
+        <dl class="prem-sub-dl">
+          <div><dt>Plan</dt><dd id="subPlanName">UniVault Premium</dd></div>
+          <div><dt>Rate</dt><dd id="subRate">GH₵ 30 / month</dd></div>
+          <div><dt>Started</dt><dd id="subStartDate">—</dd></div>
+          <div><dt>Expires</dt><dd id="subExpiryDate">—</dd></div>
+          <div><dt>Time Remaining</dt><dd id="subDaysRemaining">—</dd></div>
+        </dl>
+        <div class="prem-sub-foot">
+          <button id="premSubRenewBtn" type="button">Renew / Extend 30 Days</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div id="pricingFreeView" hidden>
+    <h1 id="pricingTitle">Go Premium</h1>
+    <div id="expiredBanner" class="prem-expired-banner glass" hidden role="status">
+      <div class="prem-expired-copy">
+        <span class="prem-expired-pill">Expired</span>
+        <div>
+          <strong id="expiredTitle">Your Premium pass has expired</strong>
+          <p id="expiredCopy">Renew now to restore full past papers, downloads, and unlimited AI Tutor access.</p>
+        </div>
+      </div>
+      <button id="expiredRenewBtn" type="button">Renew Premium</button>
+    </div>
+    <div class="glass price">
+      <p id="pricingNotice" class="browse-meta" hidden style="margin:0 0 12px;color:var(--warn-ink)"></p>
+      <h2 id="priceDisplay">GH₵ 30 <small>/ month</small></h2>
+      <p id="priceDesc">Read every past question and enjoy unlimited AI tutor, predictions and quizzes.</p>
+      <ul class="prem-offer-list">
+        <li>Complete KNUST past examination papers &amp; A4 PDF downloads</li>
+        <li>Unlimited AI Tutor chats, voice questions &amp; file explanations</li>
+        <li>Lecturer-pattern predictions &amp; unlimited Quiz Lab drills</li>
+      </ul>
+      <button id="pay" type="button">Pay with Paystack</button>
+      <a id="pricingAdminLink" href="admin.html" class="admin-btn" hidden style="justify-self:center">Open Admin Dashboard</a>
+    </div>
+  </div>
+</section>
 </main>
 <dialog id="reader" class="pdf-reader-dialog" aria-labelledby="rt">
   <div class="pdf-reader-bar">
@@ -171,6 +303,24 @@
         <p class="pdf-notes-line" id="readerNotes" hidden></p>
       </div>
       <div id="rb" class="pdf-sheet-body"></div>
+      <div id="readerLockZone" class="pdf-lock-zone" hidden>
+        <div class="pdf-blurred-sample" aria-hidden="true">
+          <p>Question 2. (a) Derive the general expression from first principles and evaluate all boundary conditions across the interval shown.</p>
+          <p>(b) Using the result obtained above, determine the steady-state solution and state all assumptions clearly with complete steps.</p>
+          <p>Question 3. Compare the two methods of analysis with respect to convergence rate, stability, and computational cost under examination constraints.</p>
+        </div>
+        <div class="pdf-lock-overlay" role="region" aria-label="Premium paper lock">
+          <div class="pdf-lock-card">
+            <span class="pdf-lock-icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+            <h4>Full Past Paper Locked</h4>
+            <p id="readerLockCopy">Preview only. Unlock full KNUST past papers, PDF downloads, and unlimited AI Tutor access.</p>
+            <div class="pdf-lock-actions">
+              <button id="readerUnlockBtn" type="button" class="pdf-dl-btn">Unlock with Premium · GH₵30/month</button>
+              <button id="readerLearnMoreBtn" type="button" class="ghost pdf-lock-more">See all Premium benefits</button>
+            </div>
+          </div>
+        </div>
+      </div>
     </article>
   </div>
   <div class="pdf-reader-foot">
@@ -195,4 +345,33 @@
     </div>
   </form>
 </dialog>
+<dialog id="upgradeModal" class="upgrade-modal" aria-labelledby="upgradeModalTitle">
+  <div class="upgrade-modal-head">
+    <span class="uv-prem-pill" aria-hidden="true"><svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor"><path d="M3 18h18v2H3v-2zm0-2l2-9 4.5 4L12 5l2.5 6L19 7l2 9H3z"/></svg><span>UniVault Premium</span></span>
+    <button type="button" class="ghost pdf-close-x" id="upgradeModalCloseX" aria-label="Close upgrade modal">✕</button>
+  </div>
+  <h3 id="upgradeModalTitle">Free AI Trial Limit Reached</h3>
+  <p id="upgradeModalCopy" class="upgrade-modal-copy">You have used all of your free AI Tutor sessions. Upgrade to Premium for unlimited AI help and full past papers.</p>
+  <div class="upgrade-modal-price" id="upgradeModalPrice">GH₵ 30 <small>/ month</small></div>
+  <ul class="prem-offer-list">
+    <li>Unlimited AI Tutor chats, voice questions &amp; file walkthroughs</li>
+    <li>Full past examination papers &amp; A4 PDF downloads</li>
+    <li>Lecturer-pattern predictions &amp; custom Quiz Lab</li>
+  </ul>
+  <div class="upgrade-modal-actions">
+    <button id="upgradeModalPayBtn" type="button" class="pdf-dl-btn">Unlock with Premium · GH₵30/month</button>
+    <button id="upgradeModalLaterBtn" type="button" class="ghost">Maybe later</button>
+  </div>
+</dialog>
+
+<dialog id="paymentStatusModal" class="upgrade-modal" aria-labelledby="payStatusTitle">
+  <div class="pay-status-body">
+    <div id="payStatusIcon" class="pay-status-icon" aria-hidden="true"></div>
+    <h3 id="payStatusTitle">Verifying payment...</h3>
+    <p id="payStatusCopy" class="upgrade-modal-copy">Checking your transaction with Paystack and confirming your Premium access in Supabase.</p>
+    <div id="payStatusBadgePreview" class="pay-status-badge-preview" hidden></div>
+    <div id="payStatusActions" class="upgrade-modal-actions"></div>
+  </div>
+</dialog>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js" crossorigin="anonymous"></script><script src="https://js.paystack.co/v1/inline.js" crossorigin="anonymous"></script><script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js" crossorigin="anonymous"></script><script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js" crossorigin="anonymous"></script><script src="config.js"></script><script src="knust-courses.js"></script><script src="ocr-reader.js"></script><script src="tour.js"></script><script src="app.js"></script></body></html>

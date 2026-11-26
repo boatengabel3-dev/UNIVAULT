@@ -64,6 +64,11 @@ $("#aout").onclick = async () => {
       .maybeSingle();
     if (!a) return location.replace("app.html");
     document.body.hidden = false;
+    if (typeof getPremiumStatus === "function" && typeof renderPremiumBadge === "function") {
+      getPremiumStatus({ user: session.user, force: true })
+        .then((st) => renderPremiumBadge($("#adminHeaderBadge"), st, { compact: true, showUpgrade: false }))
+        .catch(() => {});
+    }
     await load();
   } catch (err) {
     if (typeof isInvalidRefreshTokenError === "function" && isInvalidRefreshTokenError(err)) {
@@ -121,7 +126,7 @@ async function load() {
       .select("*,question_content(content)")
       .order("created_at", { ascending: false }),
     sb.from("payouts").select("*").order("created_at", { ascending: false }),
-    sb.from("profiles").select("id,full_name,premium_until,balance"),
+    sb.from("profiles").select("*"),
     sb.from("payments").select("reference,amount,created_at").order("created_at", { ascending: false }),
     sb.from("testimonials").select("*").order("created_at", { ascending: false }),
   ]);
@@ -194,14 +199,64 @@ async function load() {
 
   if (Array.isArray(profiles)) {
     const now = new Date();
-    const activePrem = profiles.filter(
-      (p) => p.premium_until && new Date(p.premium_until) > now
-    ).length;
+    const getExp = (p) => p?.premium_expires_at || p?.premium_until || null;
+    const activePrem = profiles.filter((p) => {
+      const exp = getExp(p);
+      return Boolean(exp && new Date(exp) > now);
+    }).length;
     $("#ovUsers").textContent = String(profiles.length);
     $("#ovPremium").textContent = String(activePrem);
+
+    const premListEl = $("#premiumUsersList");
+    const premCountEl = $("#premMembersCount");
+    if (premListEl) {
+      const members = profiles
+        .filter((p) => Boolean(getExp(p) || (p.plan && p.plan !== "free")))
+        .sort((a, b) => new Date(getExp(b) || 0).getTime() - new Date(getExp(a) || 0).getTime());
+
+      if (premCountEl) {
+        premCountEl.textContent = `${activePrem} active · ${members.length} total`;
+      }
+
+      premListEl.innerHTML =
+        members
+          .map((p) => {
+            const expRaw = getExp(p);
+            const expDate = expRaw ? new Date(expRaw) : null;
+            const isActive = Boolean(expDate && !Number.isNaN(expDate.getTime()) && expDate > now);
+            const daysLeft = isActive
+              ? Math.max(1, Math.ceil((expDate.getTime() - now.getTime()) / 86400000))
+              : 0;
+            const cls = !isActive
+              ? "st-rejected"
+              : daysLeft <= 5
+                ? "st-pending"
+                : "st-approved";
+            const statusText = !isActive
+              ? "Expired"
+              : daysLeft <= 5
+                ? `Expiring · ${daysLeft}d left`
+                : `Active · ${daysLeft}d left`;
+            const startedText = p.premium_started_at
+              ? `Started ${new Date(p.premium_started_at).toLocaleDateString()} · `
+              : "";
+            const expText = expDate && !Number.isNaN(expDate.getTime())
+              ? `${isActive ? "Expires" : "Expired"} ${expDate.toLocaleDateString()}`
+              : "No expiry recorded";
+            const displayName = p.full_name?.trim() || `Student ${String(p.id || "").slice(0, 8)}`;
+            const planLabel = p.plan && p.plan !== "free" ? p.plan : "premium";
+            return `<div class="row-item"><div class="row-main"><strong>${esc(displayName)}</strong><span>Plan: ${esc(planLabel)} · ${esc(startedText)}${esc(expText)}</span></div><div class="row-meta"><span class="${cls}">${esc(statusText)}</span></div></div>`;
+          })
+          .join("") ||
+        `<div class="row-item"><div class="row-main"><strong>No Premium subscribers yet</strong><span>Verified Paystack subscriptions and expiry dates will appear here.</span></div></div>`;
+    }
   } else {
     $("#ovUsers").textContent = "Run SQL update";
     $("#ovPremium").textContent = "—";
+    if ($("#premiumUsersList")) {
+      $("#premiumUsersList").innerHTML =
+        `<div class="row-item"><div class="row-main"><strong>Run schema.sql update to inspect Premium members</strong></div></div>`;
+    }
   }
 
   if (Array.isArray(payments)) {

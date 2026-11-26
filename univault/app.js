@@ -1,4 +1,4 @@
-let ALL_Q = [], Q = [], user = null, userProgramme = null, P = {}, hist = [], cur = null, quiz = [], myUploads = [], myPayouts = [], dashStatus = "all", activeAttachment = null, dupCheckTimer = null, isAdminUser = false, lastUploadBody = "", isUsingOfflineCache = false, appSettings = { price_ghs: Number(C.PRICE_GHS || 30), free_ai_limit: 5, free_questions_limit: 3 };
+let ALL_Q = [], Q = [], user = null, userProgramme = null, P = {}, hist = [], cur = null, quiz = [], myUploads = [], myPayouts = [], dashStatus = "all", activeAttachment = null, dupCheckTimer = null, isAdminUser = false, lastUploadBody = "", isUsingOfflineCache = false, appSettings = { price_ghs: Number(C.PRICE_GHS || 30), free_ai_limit: 5, free_questions_limit: 3 }, premiumStatus = { loading: true, error: null, isAuthenticated: false, is_premium: false }, pendingLockedPaperId = null;
 
 function getOfflineKey(kind) {
   const uid = user?.id || "anon";
@@ -175,6 +175,7 @@ const initialParams = new URLSearchParams(location.search);
       }
     }
     updateProgrammeUi();
+    applyProgrammeAccessFilter();
 
     if (!isAdminUser && !userProgramme && window.uvKnustCourses) {
       openProgrammeDialog(false);
@@ -182,12 +183,17 @@ const initialParams = new URLSearchParams(location.search);
 
     const initView = initialParams.get("view");
     const initPaper = initialParams.get("paper");
-    if (initPaper) {
+    const payRef = initialParams.get("reference") || initialParams.get("trxref") || initialParams.get("payment_ref");
+    if (payRef) {
+      syncUrlParams({ reference: null, trxref: null, payment_ref: null });
+      show(initView || "pricing", true);
+      await verifyPaystackReference(payRef);
+    } else if (initPaper) {
       await openPaperById(initPaper);
     } else if (initView && initView !== "browse") {
       show(initView, true);
     }
-    if (!initPaper && window.uvGuide?.init) {
+    if (!initPaper && !payRef && window.uvGuide?.init) {
       window.uvGuide.init({
         user,
         profile: P,
@@ -294,23 +300,123 @@ function formatPriceGhs(v) {
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
 }
 
-function updatePricingAndQuotaUi(remainingAiOverride, remainingQuestionsOverride) {
-  const price = Number(appSettings.price_ghs);
+function getRecentPapersKey() {
+  return `uv_recent_papers_${user?.id || "anon"}`;
+}
+
+function getRecentPapers() {
+  try {
+    const raw = localStorage.getItem(getRecentPapersKey());
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function recordRecentPaper(paper) {
+  if (!paper?.id) return;
+  try {
+    const existing = getRecentPapers().filter((p) => String(p.id) !== String(paper.id));
+    existing.unshift({
+      id: paper.id,
+      course_code: paper.course_code || "KNUST Paper",
+      course_title: paper.course_title || "",
+      year: paper.year || "",
+      semester: paper.semester || "",
+      viewedAt: Date.now(),
+    });
+    localStorage.setItem(getRecentPapersKey(), JSON.stringify(existing.slice(0, 6)));
+    renderRecentPapers();
+  } catch {}
+}
+
+function renderRecentPapers() {
+  const listEl = $("#recentPapersList");
+  const contBtn = $("#premContinueBtn");
+  const recents = getRecentPapers();
+  const fallbackPaper = Q[0] || null;
+  const continueTarget = recents[0] || fallbackPaper;
+
+  if (contBtn) {
+    if (continueTarget?.id) {
+      contBtn.disabled = false;
+      contBtn.textContent = recents[0]
+        ? `Continue ${continueTarget.course_code}${continueTarget.year ? " (" + continueTarget.year + ")" : ""}`
+        : `Read ${continueTarget.course_code}`;
+      contBtn.onclick = () => openPaperById(continueTarget.id);
+    } else {
+      contBtn.disabled = false;
+      contBtn.textContent = "Browse Past Papers";
+      contBtn.onclick = () => show("browse");
+    }
+  }
+
+  if (!listEl) return;
+  if (!recents.length) {
+    listEl.innerHTML = '<p class="prem-recent-empty">Papers you open will appear here for quick one-tap access.</p>';
+    return;
+  }
+
+  listEl.innerHTML = recents
+    .slice(0, 5)
+    .map((p) => {
+      const term = [p.year, p.semester ? `Sem ${p.semester}` : ""].filter(Boolean).join(" · ");
+      const dateStr = p.viewedAt ? new Date(p.viewedAt).toLocaleDateString() : "";
+      return `<button type="button" class="prem-recent-item" data-recent-id="${esc(p.id)}">
+        <span class="prem-recent-main"><strong>${esc(p.course_code)}</strong>${p.course_title ? ` — ${esc(p.course_title)}` : ""}</span>
+        <span class="prem-recent-meta">${esc(term || dateStr)}</span>
+      </button>`;
+    })
+    .join("");
+
+  listEl.querySelectorAll("[data-recent-id]").forEach((btn) => {
+    btn.onclick = () => openPaperById(btn.dataset.recentId);
+  });
+}
+
+function getEffectiveAiQuota(status = premiumStatus) {
+  const freeLimit = Math.max(0, Math.floor(Number(appSettings.free_ai_limit ?? 5)));
+  const used = Math.max(0, Number(P.ai_uses ?? status?.ai_uses ?? 0));
+  const remaining = Math.max(0, freeLimit - used);
+  return { freeLimit, used, remaining };
+}
+
+function syncAllPremiumUi(status, remainingAiOverride, remainingQuestionsOverride) {
+  if (status && typeof status === "object") {
+    premiumStatus = status;
+  }
+  const st = premiumStatus || { loading: true };
+  const isLoading = Boolean(st.loading);
+  const hasLoadError = Boolean(!isLoading && st.error);
+
+  const price = Number(st.price_ghs ?? appSettings.price_ghs);
   const effectivePrice = Number.isFinite(price) && price > 0 ? price : 30;
   C.PRICE_GHS = effectivePrice;
+  appSettings.price_ghs = effectivePrice;
   const priceLabel = formatPriceGhs(effectivePrice);
 
-  const freeLimit = Math.max(0, Math.floor(Number(appSettings.free_ai_limit ?? 5)));
-  const freeQuestionsLimit = Math.max(0, Math.floor(Number(appSettings.free_questions_limit ?? 3)));
+  const freeLimit = Math.max(0, Math.floor(Number(st.free_ai_limit ?? appSettings.free_ai_limit ?? 5)));
+  const freeQuestionsLimit = Math.max(
+    0,
+    Math.floor(Number(st.free_questions_limit ?? appSettings.free_questions_limit ?? 3))
+  );
+  appSettings.free_ai_limit = freeLimit;
+  appSettings.free_questions_limit = freeQuestionsLimit;
+
   let remaining;
   if (typeof remainingAiOverride === "number" && Number.isFinite(remainingAiOverride)) {
     remaining = Math.max(0, remainingAiOverride);
     P.ai_uses = Math.max(0, freeLimit - remaining);
   } else {
-    remaining = Math.max(0, freeLimit - Number(P.ai_uses || 0));
+    remaining = Math.max(0, freeLimit - Number(P.ai_uses ?? st.ai_uses ?? 0));
   }
 
-  const unlockedCount = Array.isArray(P.free_question_ids) ? P.free_question_ids.length : 0;
+  const unlockedCount = Array.isArray(P.free_question_ids)
+    ? P.free_question_ids.length
+    : Array.isArray(st.free_question_ids)
+      ? st.free_question_ids.length
+      : 0;
   let remainingQuestions;
   if (typeof remainingQuestionsOverride === "number" && Number.isFinite(remainingQuestionsOverride)) {
     remainingQuestions = Math.max(0, remainingQuestionsOverride);
@@ -318,163 +424,352 @@ function updatePricingAndQuotaUi(remainingAiOverride, remainingQuestionsOverride
     remainingQuestions = Math.max(0, freeQuestionsLimit - unlockedCount);
   }
 
-  const hasPaidPro = Boolean(P.paid || (P.premium_until && new Date(P.premium_until) > new Date()));
-  const hasPro = Boolean(hasPaidPro || isAdminUser || P.on);
-  P.paid = hasPaidPro;
-  P.on = hasPro;
+  const rawExpires = st.premium_expires_at || P.premium_expires_at || P.premium_until || null;
+  const expiresDate = rawExpires ? new Date(rawExpires) : null;
+  const hasValidExpiry = Boolean(expiresDate && !Number.isNaN(expiresDate.getTime()));
+  const hasPaidPro = !isLoading && Boolean(st.isPaidActive ?? (hasValidExpiry && expiresDate > new Date()));
+  const isExpired = !isLoading && !hasPaidPro && !isAdminUser && Boolean(st.isExpired ?? (hasValidExpiry && expiresDate <= new Date()));
+  const hasPro = !isLoading && Boolean(st.is_premium ?? (hasPaidPro || isAdminUser || P.on));
+  const daysRemaining = hasPaidPro && expiresDate
+    ? Number(st.daysRemaining || Math.max(1, Math.ceil((expiresDate.getTime() - Date.now()) / 86400000)))
+    : 0;
+  const isExpiringSoon = !isLoading && hasPaidPro && !isAdminUser && daysRemaining <= 5;
 
-  if ($("#headerProBadge")) {
-    $("#headerProBadge").hidden = !hasPro;
-    if (hasPaidPro && P.premium_until) {
-      const until = new Date(P.premium_until).toLocaleDateString();
-      $("#headerProBadge").title = `Pro active until ${until}`;
-      $("#headerProBadge").setAttribute("aria-label", `Pro active until ${until}`);
-    } else if (isAdminUser) {
-      $("#headerProBadge").title = "Pro account active (Admin)";
-      $("#headerProBadge").setAttribute("aria-label", "Pro account active (Admin)");
+  if (!isLoading) {
+    P.paid = hasPaidPro;
+    P.on = hasPro;
+    if (rawExpires) {
+      P.premium_expires_at = rawExpires;
+      P.premium_until = rawExpires;
     }
+  }
+
+  const displayName = String(
+    st.displayName || P.full_name || user?.user_metadata?.full_name || user?.email?.split("@")[0] || ""
+  ).trim();
+  const firstName = displayName ? displayName.split(/\s+/)[0] : "Scholar";
+
+  if ($("#hdrUserName")) {
+    $("#hdrUserName").textContent = displayName;
+    $("#hdrUserName").hidden = !displayName;
+  }
+  if ($("#drawerUserName")) {
+    $("#drawerUserName").textContent = displayName || "Account";
+  }
+  if ($("#dashUserLabel")) {
+    $("#dashUserLabel").textContent = displayName ? `Signed in as ${displayName}` : "";
+    $("#dashUserLabel").hidden = !displayName;
+  }
+
+  const badgeStatus = isLoading
+    ? { loading: true }
+    : {
+        ...st,
+        loading: false,
+        isAuthenticated: Boolean(user || st.isAuthenticated),
+        is_premium: hasPro,
+        isPaidActive: hasPaidPro,
+        isAdmin: isAdminUser,
+        isExpired,
+        premium_expires_at: rawExpires,
+      };
+
+  if (typeof renderPremiumBadge === "function") {
+    const upgradeAction = () => startPaystackCheckout();
+    renderPremiumBadge("#headerProBadge", badgeStatus, { compact: true, onUpgrade: upgradeAction });
+    renderPremiumBadge("#drawerBadgeSlot", badgeStatus, { onUpgrade: upgradeAction });
+    renderPremiumBadge("#browseBadgeSlot", badgeStatus, { onUpgrade: upgradeAction });
+    renderPremiumBadge("#dashHeaderBadge", badgeStatus, { onUpgrade: upgradeAction });
+    renderPremiumBadge("#chatHeaderBadge", badgeStatus, { onUpgrade: upgradeAction });
+    renderPremiumBadge("#premViewBadge", badgeStatus, { showUpgrade: false });
   }
 
   if ($("#drawerAdminLink")) {
     $("#drawerAdminLink").hidden = !isAdminUser;
   }
 
+  if ($("#drawerExpiryMeta")) {
+    if (isLoading) {
+      $("#drawerExpiryMeta").hidden = true;
+    } else if (hasPaidPro && expiresDate) {
+      $("#drawerExpiryMeta").hidden = false;
+      $("#drawerExpiryMeta").textContent = `Premium until ${expiresDate.toLocaleDateString()}`;
+    } else if (isAdminUser) {
+      $("#drawerExpiryMeta").hidden = false;
+      $("#drawerExpiryMeta").textContent = "Premium until Unlimited (Admin)";
+    } else if (isExpired && expiresDate) {
+      $("#drawerExpiryMeta").hidden = false;
+      $("#drawerExpiryMeta").textContent = `Premium expired on ${expiresDate.toLocaleDateString()}`;
+    } else {
+      $("#drawerExpiryMeta").hidden = true;
+      $("#drawerExpiryMeta").textContent = "";
+    }
+  }
+
   if ($("#badge")) {
-    $("#badge").textContent = hasPaidPro && P.premium_until
-      ? `Pro until ${new Date(P.premium_until).toLocaleDateString()}${isAdminUser ? " · Admin" : ""}`
-      : isAdminUser
-        ? "Pro · Admin"
-        : freeQuestionsLimit > 0 || freeLimit > 0
-          ? `Free · ${remainingQuestions} Q · ${remaining} AI left`
-          : "Free";
+    if (isLoading) {
+      $("#badge").textContent = "Checking plan...";
+    } else if (hasPaidPro && expiresDate) {
+      $("#badge").textContent = `Premium · ${daysRemaining}d left${isAdminUser ? " · Admin" : ""}`;
+    } else if (isAdminUser) {
+      $("#badge").textContent = "Premium · Admin";
+    } else if (isExpired) {
+      $("#badge").textContent = "Expired · Free tier";
+    } else if (freeQuestionsLimit > 0 || freeLimit > 0) {
+      $("#badge").textContent = `Free · ${remainingQuestions} Q · ${remaining} AI left`;
+    } else {
+      $("#badge").textContent = "Free";
+    }
   }
 
-  if ($("#pricingTitle")) {
-    $("#pricingTitle").textContent = hasPro ? "Premium Active" : "Go Premium";
-  }
-  if ($("#priceDisplay")) {
-    if (isAdminUser) {
-      $("#priceDisplay").innerHTML = hasPaidPro && P.premium_until
-        ? `PRO <small>· until ${esc(new Date(P.premium_until).toLocaleDateString())}</small>`
-        : "PRO <small>· Admin</small>";
-    } else {
-      $("#priceDisplay").innerHTML = `GH₵ ${esc(priceLabel)} <small>/ month</small>`;
+  // Pricing / Premium view state switching (skeleton -> error -> active or free/expired)
+  const skelEl = $("#pricingSkeleton");
+  const errEl = $("#pricingError");
+  const activeEl = $("#premiumActiveView");
+  const freeEl = $("#pricingFreeView");
+
+  if (skelEl) skelEl.hidden = !isLoading;
+  if (errEl) {
+    errEl.hidden = !hasLoadError;
+    if (hasLoadError && $("#pricingErrorMsg")) {
+      $("#pricingErrorMsg").textContent = st.error || "Could not verify subscription status.";
     }
-  }
-  if ($("#priceDesc")) {
-    if (isAdminUser) {
-      $("#priceDesc").textContent =
-        "Your Admin account automatically includes full Premium access — read and download every past question, plus unlimited AI Tutor, predictions, and quizzes.";
-    } else {
-      const parts = [];
-      if (freeQuestionsLimit > 0) {
-        parts.push(`${freeQuestionsLimit} free past question${freeQuestionsLimit === 1 ? "" : "s"}`);
-      }
-      if (freeLimit > 0) {
-        parts.push(`${freeLimit} free AI tutor use${freeLimit === 1 ? "" : "s"}`);
-      }
-      $("#priceDesc").textContent = parts.length
-        ? `Read every past question and enjoy unlimited AI tutor, predictions and quizzes. Free accounts include ${parts.join(" and ")} before upgrading to Pro.`
-        : "Read every past question and enjoy unlimited AI tutor, predictions and quizzes.";
-    }
-  }
-  if ($("#pay")) {
-    $("#pay").hidden = Boolean(isAdminUser);
-    if (!isAdminUser) {
-      $("#pay").textContent = hasPaidPro ? "Extend Pro with Paystack" : "Pay with Paystack";
-    }
-  }
-  if ($("#pricingAdminLink")) {
-    $("#pricingAdminLink").hidden = !isAdminUser;
   }
 
+  if (!isLoading && !hasLoadError) {
+    if (hasPro) {
+      if (activeEl) activeEl.hidden = false;
+      if (freeEl) freeEl.hidden = true;
+
+      if ($("#premWelcome")) {
+        $("#premWelcome").textContent = `Welcome back, ${firstName}`;
+      }
+      if ($("#premRenewalNote")) {
+        $("#premRenewalNote").textContent =
+          hasPaidPro && expiresDate
+            ? `Active until ${expiresDate.toLocaleDateString()} (${daysRemaining} day${daysRemaining === 1 ? "" : "s"} left)`
+            : "Admin Full Access Active";
+      }
+      if ($("#premHeroSub")) {
+        $("#premHeroSub").textContent = isAdminUser && !hasPaidPro
+          ? "Your Admin account has full student-view Premium unlocked across all papers, downloads, AI Tutor, predictions, and Quiz Lab."
+          : "Your full KNUST exam archive, PDF downloads, and unlimited AI Tutor tools are active.";
+      }
+      if ($("#premAdminQuickLink")) {
+        $("#premAdminQuickLink").hidden = !isAdminUser;
+      }
+      if ($("#premManageBtn")) {
+        $("#premManageBtn").hidden = Boolean(isAdminUser && !hasPaidPro);
+        $("#premManageBtn").textContent = isExpiringSoon ? "Renew Now" : "Manage / Renew";
+      }
+
+      if ($("#premExpiringBanner")) {
+        $("#premExpiringBanner").hidden = !isExpiringSoon;
+        if (isExpiringSoon && expiresDate && $("#premBannerText")) {
+          $("#premBannerText").textContent = `Your Premium pass expires in ${daysRemaining} day${daysRemaining === 1 ? "" : "s"} (${expiresDate.toLocaleDateString()}). Renew now to keep uninterrupted access.`;
+        }
+      }
+
+      if ($("#subStatusPill")) {
+        $("#subStatusPill").textContent = isAdminUser && !hasPaidPro
+          ? "Admin"
+          : isExpiringSoon
+            ? "Expiring Soon"
+            : "Active";
+      }
+      if ($("#subPlanName")) {
+        $("#subPlanName").textContent = isAdminUser && !hasPaidPro
+          ? "Admin Unlimited"
+          : String(st.plan || P.plan || "premium").toLowerCase() === "premium"
+            ? "UniVault Premium"
+            : String(st.plan || "UniVault Premium");
+      }
+      if ($("#subRate")) {
+        $("#subRate").textContent = isAdminUser && !hasPaidPro ? "Complimentary (Admin)" : `GH₵ ${priceLabel} / month`;
+      }
+      if ($("#subStartDate")) {
+        const startRaw = st.premium_started_at || P.premium_started_at;
+        $("#subStartDate").textContent = startRaw ? new Date(startRaw).toLocaleDateString() : "—";
+      }
+      if ($("#subExpiryDate")) {
+        $("#subExpiryDate").textContent =
+          hasPaidPro && expiresDate ? expiresDate.toLocaleDateString() : isAdminUser ? "No expiry" : "—";
+      }
+      if ($("#subDaysRemaining")) {
+        $("#subDaysRemaining").textContent = hasPaidPro
+          ? `${daysRemaining} day${daysRemaining === 1 ? "" : "s"} remaining`
+          : isAdminUser
+            ? "Unlimited"
+            : "0 days";
+      }
+      if ($("#premSubRenewBtn")) {
+        $("#premSubRenewBtn").hidden = Boolean(isAdminUser && !hasPaidPro);
+      }
+
+      renderRecentPapers();
+    } else {
+      if (activeEl) activeEl.hidden = true;
+      if (freeEl) freeEl.hidden = false;
+
+      if ($("#expiredBanner")) {
+        $("#expiredBanner").hidden = !isExpired;
+        if (isExpired && expiresDate && $("#expiredCopy")) {
+          $("#expiredCopy").textContent = `Your Premium pass expired on ${expiresDate.toLocaleDateString()}. Renew now (GH₵${priceLabel}/month) to restore full papers and unlimited AI Tutor.`;
+        }
+      }
+      if ($("#pricingTitle")) {
+        $("#pricingTitle").textContent = isExpired ? "Renew Premium" : "Go Premium";
+      }
+      if ($("#priceDisplay")) {
+        $("#priceDisplay").innerHTML = `GH₵ ${esc(priceLabel)} <small>/ month</small>`;
+      }
+      if ($("#priceDesc")) {
+        const parts = [];
+        if (freeQuestionsLimit > 0) {
+          parts.push(`${freeQuestionsLimit} free past paper${freeQuestionsLimit === 1 ? "" : "s"}`);
+        }
+        if (freeLimit > 0) {
+          parts.push(`${freeLimit} free AI tutor use${freeLimit === 1 ? "" : "s"}`);
+        }
+        $("#priceDesc").textContent = parts.length
+          ? `Read complete KNUST past papers, download printable A4 PDFs, and enjoy unlimited AI Tutor, predictions, and quizzes. Free accounts include ${parts.join(" and ")}.`
+          : "Read complete KNUST past papers, download printable A4 PDFs, and enjoy unlimited AI Tutor, predictions, and quizzes.";
+      }
+      if ($("#pay")) {
+        $("#pay").hidden = false;
+        $("#pay").textContent = isExpired
+          ? `Renew with Paystack · GH₵${priceLabel}/month`
+          : `Unlock with Premium · GH₵${priceLabel}/month`;
+      }
+      if ($("#pricingAdminLink")) {
+        $("#pricingAdminLink").hidden = !isAdminUser;
+      }
+    }
+  } else {
+    if (activeEl) activeEl.hidden = true;
+    if (freeEl) freeEl.hidden = true;
+  }
+
+  // Upgrade modal pricing label sync
+  if ($("#upgradeModalPrice")) {
+    $("#upgradeModalPrice").innerHTML = `GH₵ ${esc(priceLabel)} <small>/ month</small>`;
+  }
+  if ($("#upgradeModalPayBtn")) {
+    $("#upgradeModalPayBtn").textContent = isExpired
+      ? `Renew Premium · GH₵${priceLabel}/month`
+      : `Unlock with Premium · GH₵${priceLabel}/month`;
+  }
+
+  // Questions quota indicator
   const qQuotaEl = $("#questionsQuotaLabel");
   if (qQuotaEl) {
-    if (hasPro) {
+    if (isLoading || hasPro) {
       qQuotaEl.hidden = true;
       qQuotaEl.textContent = "";
     } else if (freeQuestionsLimit === 0) {
       qQuotaEl.hidden = false;
-      qQuotaEl.textContent = `Free past paper reading is off — upgrade to Pro (GH₵${priceLabel}/month) to read full papers.`;
+      qQuotaEl.textContent = `Free full-paper reads are disabled — previews only unless you unlock Premium (GH₵${priceLabel}/month).`;
     } else if (remainingQuestions > 0) {
       qQuotaEl.hidden = false;
-      qQuotaEl.textContent = `Free tier: ${remainingQuestions} of ${freeQuestionsLimit} free past question${freeQuestionsLimit === 1 ? "" : "s"} left before Pro (already opened papers stay accessible).`;
+      qQuotaEl.textContent = `Free tier: ${remainingQuestions} of ${freeQuestionsLimit} full paper unlock${freeQuestionsLimit === 1 ? "" : "s"} left (locked papers show previews).`;
     } else {
       qQuotaEl.hidden = false;
-      qQuotaEl.textContent = `Free past question limit reached (${freeQuestionsLimit}/${freeQuestionsLimit}). Upgrade to Pro (GH₵${priceLabel}/month) to read more papers.`;
+      qQuotaEl.textContent = `Free full-paper limit reached (${freeQuestionsLimit}/${freeQuestionsLimit}). Upgrade to Premium (GH₵${priceLabel}/month) for full papers & PDF downloads.`;
     }
   }
 
+  // AI quota indicator
   const quotaEl = $("#aiQuotaLabel");
   if (quotaEl) {
-    if (isAdminUser && !hasPaidPro) {
+    if (isLoading) {
+      quotaEl.innerHTML = '<span class="uv-line-skel" aria-hidden="true"></span>';
+    } else if (isAdminUser && !hasPaidPro) {
       quotaEl.textContent = "Unlimited AI access (Premium active · Admin)";
     } else if (hasPro) {
       quotaEl.textContent = "Unlimited AI access (Premium active)";
     } else if (freeLimit === 0) {
-      quotaEl.textContent = `Free AI trial is currently disabled. Upgrade to Premium (GH₵${priceLabel}/month) to use AI Tutor.`;
+      quotaEl.textContent = `0 free AI uses available — upgrade to Premium (GH₵${priceLabel}/month) to use AI Tutor.`;
     } else if (remaining > 0) {
-      quotaEl.textContent = `Free trial: ${remaining} of ${freeLimit} free AI use${freeLimit === 1 ? "" : "s"} remaining before Premium (GH₵${priceLabel}/month).`;
+      quotaEl.textContent = `${remaining} of ${freeLimit} free use${freeLimit === 1 ? "" : "s"} left · Upgrade to Premium (GH₵${priceLabel}/month) for unlimited AI.`;
     } else {
-      quotaEl.textContent = `Free AI trial used (${freeLimit}/${freeLimit}). Upgrade to Premium (GH₵${priceLabel}/month) for unlimited AI.`;
+      quotaEl.textContent = `0 of ${freeLimit} free uses left — upgrade to Premium (GH₵${priceLabel}/month) for unlimited AI.`;
     }
   }
 }
 
+function updatePricingAndQuotaUi(remainingAiOverride, remainingQuestionsOverride) {
+  syncAllPremiumUi(premiumStatus, remainingAiOverride, remainingQuestionsOverride);
+}
+
 async function refresh() {
+  syncAllPremiumUi({ ...premiumStatus, loading: true, error: null });
+  let status = null;
   try {
-    const [profRes, adminRes] = await Promise.all([
-      sb.from("profiles").select("*").single(),
-      sb.from("admins").select("user_id").eq("user_id", user.id).maybeSingle(),
-    ]);
-    let settingsRes = await sb
-      .from("app_settings")
-      .select("price_ghs,free_ai_limit,free_questions_limit")
-      .eq("id", 1)
-      .maybeSingle();
-    if (settingsRes?.error && /free_questions_limit/i.test(settingsRes.error.message || "")) {
-      settingsRes = await sb.from("app_settings").select("price_ghs,free_ai_limit").eq("id", 1).maybeSingle();
-    }
-    if (profRes.error && !profRes.data) throw profRes.error;
-    P = profRes.data || {};
-    isAdminUser = Boolean(adminRes?.data);
-    P.paid = Boolean(P.premium_until && new Date(P.premium_until) > new Date());
-    P.on = Boolean(P.paid || isAdminUser);
-    if (settingsRes?.data) {
+    status = typeof getPremiumStatus === "function"
+      ? await getPremiumStatus({ force: true, user })
+      : null;
+
+    if (status && !status.error) {
+      isAdminUser = Boolean(status.isAdmin);
+      P = status.profile ? { ...status.profile } : {};
+      P.paid = Boolean(status.isPaidActive);
+      P.on = Boolean(status.is_premium);
       appSettings = {
-        price_ghs: Number(settingsRes.data.price_ghs) || 30,
-        free_ai_limit:
-          settingsRes.data.free_ai_limit !== null && settingsRes.data.free_ai_limit !== undefined
-            ? Number(settingsRes.data.free_ai_limit)
-            : 5,
-        free_questions_limit:
-          settingsRes.data.free_questions_limit !== null && settingsRes.data.free_questions_limit !== undefined
-            ? Number(settingsRes.data.free_questions_limit)
-            : 3,
+        price_ghs: status.price_ghs,
+        free_ai_limit: status.free_ai_limit,
+        free_questions_limit: status.free_questions_limit,
       };
+    } else if (status?.error && navigator.onLine === false) {
+      throw new Error(status.error);
     }
 
     const [poRes, mRes] = await Promise.all([
-      sb.from("payouts").select("*").order("created_at", { ascending: false }),
+      sb.from("payouts").select("*").eq("user_id", user.id).order("created_at", { ascending: false }),
       sb.from("questions").select("*").eq("uploader", user.id).order("created_at", { ascending: false }),
     ]);
     myPayouts = poRes.data || [];
     myUploads = mRes.data || [];
-    writeOfflineJson("meta", { P, isAdminUser, appSettings, myPayouts, myUploads });
-  } catch {
+    if (status && !status.error) {
+      writeOfflineJson("meta", { P, isAdminUser, appSettings, myPayouts, myUploads, status });
+    }
+  } catch (err) {
     const cached = readOfflineJson("meta");
-    if (cached && typeof cached === "object") {
+    if (cached && typeof cached === "object" && navigator.onLine === false) {
       P = cached.P || {};
       isAdminUser = Boolean(cached.isAdminUser);
-      P.paid = Boolean(P.premium_until && new Date(P.premium_until) > new Date());
-      P.on = Boolean(P.paid || isAdminUser);
+      const rawExp = P.premium_expires_at || P.premium_until || null;
+      const paid = Boolean(rawExp && new Date(rawExp) > new Date());
+      P.paid = paid;
+      P.on = Boolean(paid || isAdminUser);
       if (cached.appSettings) appSettings = cached.appSettings;
       myPayouts = Array.isArray(cached.myPayouts) ? cached.myPayouts : [];
       myUploads = Array.isArray(cached.myUploads) ? cached.myUploads : [];
+      status = {
+        loading: false,
+        error: null,
+        isAuthenticated: true,
+        userId: user?.id || null,
+        displayName: P.full_name || user?.email?.split("@")[0] || "",
+        is_premium: P.on,
+        isPaidActive: paid,
+        isAdmin: isAdminUser,
+        plan: paid ? P.plan || "premium" : isAdminUser ? "admin_premium" : "free",
+        premium_started_at: P.premium_started_at || null,
+        premium_expires_at: rawExp,
+        daysRemaining: paid ? Math.max(1, Math.ceil((new Date(rawExp) - Date.now()) / 86400000)) : 0,
+        isExpired: Boolean(rawExp && !paid),
+        ai_uses: Number(P.ai_uses || 0),
+        free_question_ids: Array.isArray(P.free_question_ids) ? P.free_question_ids : [],
+        price_ghs: appSettings.price_ghs,
+        free_ai_limit: appSettings.free_ai_limit,
+        free_questions_limit: appSettings.free_questions_limit,
+      };
+    } else if (!status?.error) {
+      status = { loading: false, error: err?.message || "Could not load account status.", isAuthenticated: Boolean(user) };
     }
   }
 
-  updatePricingAndQuotaUi();
+  syncAllPremiumUi(status || { loading: false, error: "Could not load account status." });
   if ($("#bal")) $("#bal").textContent = fmt(P.balance || 0);
   if ($("#pays")) {
     $("#pays").innerHTML = myPayouts
@@ -757,6 +1052,7 @@ function applyProgrammeAccessFilter() {
   });
 
   render(false);
+  renderRecentPapers();
 }
 
 async function load() {
@@ -1197,19 +1493,20 @@ function formatExamPaperHtml(rawText) {
   return blocks.join("");
 }
 
-function setReaderView({ title, body = "", paper = null, isPaper = false, isLoading = false }) {
+function setReaderView({ title, body = "", paper = null, isPaper = false, isLoading = false, isPreview = false }) {
   if ($("#rt")) $("#rt").textContent = title || "Past Question";
   const sheet = $("#readerSheet");
   const masthead = $("#readerMasthead");
   const rb = $("#rb");
   const printBtn = $("#printPaperBtn");
   const downloadBtn = $("#downloadPaperBtn");
+  const lockZone = $("#readerLockZone");
 
   if (sheet) {
-    sheet.dataset.state = isPaper ? "paper" : "status";
+    sheet.dataset.state = isPaper ? "paper" : isPreview ? "preview" : "status";
   }
 
-  if (masthead && paper && (isPaper || isLoading)) {
+  if (masthead && paper && (isPaper || isLoading || isPreview)) {
     masthead.hidden = false;
     if ($("#readerDept")) {
       $("#readerDept").textContent = paper.department || "Academic Examination Archive";
@@ -1226,7 +1523,7 @@ function setReaderView({ title, body = "", paper = null, isPaper = false, isLoad
       $("#readerTermLine").textContent = termParts.join(" · ");
     }
     if ($("#readerNotes")) {
-      if (isPaper && paper.description) {
+      if ((isPaper || isPreview) && paper.description) {
         $("#readerNotes").textContent = paper.description;
         $("#readerNotes").hidden = false;
       } else {
@@ -1239,12 +1536,20 @@ function setReaderView({ title, body = "", paper = null, isPaper = false, isLoad
   }
 
   if (rb) {
-    if (isPaper) {
+    if (isPaper || (isPreview && body.trim())) {
       rb.innerHTML = formatExamPaperHtml(body);
       typesetMathInReader(rb);
+    } else if (isPreview) {
+      rb.innerHTML = "";
     } else {
       rb.innerHTML = `<div class="pdf-status-note${isLoading ? " is-loading" : ""}">${esc(body)}</div>`;
     }
+  }
+
+  if (lockZone) {
+    lockZone.hidden = !isPreview;
+    const blurred = lockZone.querySelector(".pdf-blurred-sample");
+    if (blurred) blurred.hidden = !isPreview;
   }
 
   if (printBtn) {
@@ -1774,6 +2079,8 @@ async function openPaperById(rawId) {
   };
 
   let content = "";
+  let preview = "";
+  let isPreview = false;
   let hasAccess = false;
   let networkFailed = false;
   let schemaNeedsMigration = false;
@@ -1806,13 +2113,15 @@ async function openPaperById(rawId) {
     } else if (rpcData.not_found) {
       blockedReason = "This past question could not be found in the database.";
     } else {
+      isPreview = Boolean(rpcData.is_preview);
+      preview = typeof rpcData.preview === "string" ? rpcData.preview : "";
       const lim = Number(rpcData.limit ?? appSettings.free_questions_limit ?? 3);
       const used = Number(rpcData.used ?? lim);
       updatePricingAndQuotaUi(undefined, 0);
       blockedReason =
         lim === 0
-          ? `Subscribe to Pro (GH₵${formatPriceGhs(C.PRICE_GHS)}/month) to read full past papers.`
-          : `You have reached your free limit of ${used} of ${lim} past question${lim === 1 ? "" : "s"}. Upgrade to Pro (GH₵${formatPriceGhs(C.PRICE_GHS)}/month) for unlimited access.`;
+          ? `Preview only. Unlock the complete paper, PDF export, and unlimited AI Tutor with Premium (GH₵${formatPriceGhs(C.PRICE_GHS)}/month).`
+          : `Free paper limit reached (${used}/${lim}). Preview shown below — unlock full papers and downloads with Premium (GH₵${formatPriceGhs(C.PRICE_GHS)}/month).`;
     }
     return true;
   };
@@ -1905,6 +2214,8 @@ async function openPaperById(rawId) {
 
   cur.content = content;
   if (hasAccess) {
+    pendingLockedPaperId = null;
+    recordRecentPaper(cur);
     if ($("#pricingNotice")) $("#pricingNotice").hidden = true;
     if ($("#upgradeFromReader")) $("#upgradeFromReader").hidden = true;
     if (content.trim()) {
@@ -1913,6 +2224,7 @@ async function openPaperById(rawId) {
         body: content,
         paper: cur,
         isPaper: true,
+        isPreview: false,
       });
       $("#solve").hidden = false;
       if ($("#explainPaper")) $("#explainPaper").hidden = false;
@@ -1922,6 +2234,7 @@ async function openPaperById(rawId) {
         body: "This paper is unlocked for your account, but no question text was uploaded for it yet.",
         paper: cur,
         isPaper: false,
+        isPreview: false,
       });
       $("#solve").hidden = true;
       if ($("#explainPaper")) $("#explainPaper").hidden = true;
@@ -1936,6 +2249,7 @@ async function openPaperById(rawId) {
       body: "You are offline and this paper has not been loaded on this device yet. Reconnect to load it once and save it for offline study.",
       paper: cur,
       isPaper: false,
+      isPreview: false,
     });
     $("#solve").hidden = true;
     if ($("#explainPaper")) $("#explainPaper").hidden = true;
@@ -1949,31 +2263,54 @@ async function openPaperById(rawId) {
   const noticeText =
     blockedReason ||
     (schemaNeedsMigration && !P.on && !isAdminUser && freeLim > 0
-      ? `Free past-question reading (${freeLim} free papers) is awaiting database setup by the site admin. Upgrade to Pro (GH₵${priceTxt}/month) for immediate unlimited access.`
+      ? `Free past-question reading (${freeLim} free papers) is awaiting database setup by the site admin. Upgrade to Premium (GH₵${priceTxt}/month) for immediate unlimited access.`
       : lastErrorMessage
-        ? `Unable to open this paper right now.${!P.on && !isAdminUser ? ` Upgrade to Pro (GH₵${priceTxt}/month) or ask an admin to verify paper permissions.` : ""}`
-        : `Subscribe to Pro (GH₵${priceTxt}/month) to read this past question.`);
+        ? `Unable to open this paper right now.${!P.on && !isAdminUser ? ` Upgrade to Premium (GH₵${priceTxt}/month) or ask an admin to verify paper permissions.` : ""}`
+        : `Unlock with Premium (GH₵${priceTxt}/month) to read full past papers and download PDFs.`);
 
+  pendingLockedPaperId = id;
   if ($("#pricingNotice")) {
     $("#pricingNotice").textContent = noticeText;
     $("#pricingNotice").hidden = false;
   }
+  const showLockUi = !P.on && !isAdminUser;
+  if ($("#readerLockCopy")) {
+    $("#readerLockCopy").textContent = noticeText;
+  }
+  if ($("#readerUnlockBtn")) {
+    $("#readerUnlockBtn").textContent = `Unlock with Premium · GH₵${priceTxt}/month`;
+  }
   setReaderView({
     title: paperHeaderTitle,
-    body: noticeText,
+    body: isPreview && preview.trim() ? preview : noticeText,
     paper: cur,
     isPaper: false,
+    isPreview: showLockUi,
   });
   $("#solve").hidden = true;
   if ($("#explainPaper")) $("#explainPaper").hidden = true;
   if ($("#upgradeFromReader")) {
-    $("#upgradeFromReader").hidden = Boolean(P.on || isAdminUser);
+    $("#upgradeFromReader").hidden = true;
   }
   openReaderModal();
 }
 
 if ($("#upgradeFromReader")) {
   $("#upgradeFromReader").onclick = () => {
+    if ($("#reader")?.open) $("#reader").close();
+    syncUrlParams({ paper: null });
+    startPaystackCheckout();
+  };
+}
+if ($("#readerUnlockBtn")) {
+  $("#readerUnlockBtn").onclick = () => {
+    if ($("#reader")?.open) $("#reader").close();
+    syncUrlParams({ paper: null });
+    startPaystackCheckout();
+  };
+}
+if ($("#readerLearnMoreBtn")) {
+  $("#readerLearnMoreBtn").onclick = () => {
     if ($("#reader")?.open) $("#reader").close();
     syncUrlParams({ paper: null });
     show("pricing");
@@ -2753,6 +3090,59 @@ function cleanAiErrorMessage(err) {
   return msg;
 }
 
+function openUpgradeModal(customReason = "") {
+  const dlg = $("#upgradeModal");
+  if (!dlg) {
+    show("pricing");
+    return;
+  }
+  const priceTxt = formatPriceGhs(C.PRICE_GHS);
+  const { freeLimit } = getEffectiveAiQuota();
+  if ($("#upgradeModalTitle")) {
+    $("#upgradeModalTitle").textContent =
+      freeLimit === 0 ? "AI Tutor Requires Premium" : "Free AI Trial Limit Reached";
+  }
+  if ($("#upgradeModalCopy")) {
+    $("#upgradeModalCopy").textContent =
+      customReason ||
+      (freeLimit === 0
+        ? "Unlock AI Tutor walkthroughs, lecturer-pattern predictions, and complete past papers with Premium."
+        : `You have used all ${freeLimit} of your free AI Tutor sessions. Upgrade to Premium for unlimited AI help and full past papers.`);
+  }
+  if ($("#upgradeModalPrice")) {
+    $("#upgradeModalPrice").innerHTML = `GH₵ ${esc(priceTxt)} <small>/ month</small>`;
+  }
+  if ($("#upgradeModalPayBtn")) {
+    $("#upgradeModalPayBtn").textContent = `Unlock with Premium · GH₵${priceTxt}/month`;
+  }
+  if (!dlg.open) {
+    try {
+      dlg.showModal();
+    } catch {
+      dlg.setAttribute("open", "");
+    }
+  }
+}
+
+function closeUpgradeModal() {
+  const dlg = $("#upgradeModal");
+  if (dlg?.open) dlg.close();
+}
+
+if ($("#upgradeModal")) {
+  $("#upgradeModal").addEventListener("click", (e) => {
+    if (e.target === $("#upgradeModal")) closeUpgradeModal();
+  });
+}
+if ($("#upgradeModalCloseX")) $("#upgradeModalCloseX").onclick = closeUpgradeModal;
+if ($("#upgradeModalLaterBtn")) $("#upgradeModalLaterBtn").onclick = closeUpgradeModal;
+if ($("#upgradeModalPayBtn")) {
+  $("#upgradeModalPayBtn").onclick = () => {
+    closeUpgradeModal();
+    startPaystackCheckout();
+  };
+}
+
 function showAiErrorInBubble(bubbleEl, err, retryFn = null) {
   const msg = cleanAiErrorMessage(err);
   const isQuotaErr = err?.status === 402 || /premium|trial limit/i.test(msg);
@@ -2764,10 +3154,12 @@ function showAiErrorInBubble(bubbleEl, err, retryFn = null) {
     bubbleEl._actions.innerHTML = "";
     bubbleEl._actions.hidden = true;
     if (isQuotaErr && !P.on && !isAdminUser) {
+      updatePricingAndQuotaUi(0);
+      openUpgradeModal(msg);
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.textContent = "Upgrade to Premium";
-      btn.onclick = () => show("pricing");
+      btn.textContent = `Unlock Premium · GH₵${formatPriceGhs(C.PRICE_GHS)}/mo`;
+      btn.onclick = () => startPaystackCheckout();
       bubbleEl._actions.append(btn);
       bubbleEl._actions.hidden = false;
     } else if (typeof retryFn === "function") {
@@ -2801,6 +3193,10 @@ function buildAttachmentContext() {
 
 async function ask(text) {
   if ($("#send")?.disabled) return;
+  if (!P.on && !isAdminUser && getEffectiveAiQuota().remaining <= 0) {
+    openUpgradeModal();
+    return;
+  }
   bub(text, "u");
   hist.push({ role: "user", content: text });
   const w = bub("", "a", { typing: true, typingLabel: "Thinking..." });
@@ -2868,6 +3264,10 @@ async function ask(text) {
 
 async function requestDetailedExplanation(targetQuestion, inlineContext = "") {
   if ($("#send")?.disabled) return;
+  if (!P.on && !isAdminUser && getEffectiveAiQuota().remaining <= 0) {
+    openUpgradeModal();
+    return;
+  }
   const userLabel = targetQuestion
     ? `Detailed explanation requested:\n${targetQuestion}`
     : "Provide a detailed explanation of the uploaded material.";
@@ -3192,6 +3592,10 @@ if ($("#clearChatFile")) {
 }
 
 $("#gen").onclick = async () => {
+  if (!P.on && !isAdminUser && getEffectiveAiQuota().remaining <= 0) {
+    openUpgradeModal();
+    return;
+  }
   const o = $("#quizOut");
   o.textContent = "Generating...";
   try {
@@ -3233,7 +3637,12 @@ $("#gen").onclick = async () => {
       $("#score").textContent = `Score: ${s}/${quiz.length}`;
     };
   } catch (e) {
-    o.textContent = e.message;
+    const cleanMsg = cleanAiErrorMessage(e);
+    o.textContent = cleanMsg;
+    if (e?.status === 402 || /premium|trial limit/i.test(cleanMsg)) {
+      updatePricingAndQuotaUi(0);
+      openUpgradeModal(cleanMsg);
+    }
   }
 };
 
@@ -3424,27 +3833,271 @@ $("#wd").onclick = async () => {
   error ? alert(error.message) : (alert("Withdrawal requested"), refresh());
 };
 
-$("#pay").onclick = () => {
-  if (isAdminUser) return;
-  if (typeof PaystackPop === "undefined") {
-    return alert("Paystack checkout script failed to load.");
+function showPaymentStatusModal(state, opts = {}) {
+  const dlg = $("#paymentStatusModal");
+  if (!dlg) return;
+  const iconEl = $("#payStatusIcon");
+  const titleEl = $("#payStatusTitle");
+  const copyEl = $("#payStatusCopy");
+  const badgePreview = $("#payStatusBadgePreview");
+  const actionsEl = $("#payStatusActions");
+
+  if (iconEl) {
+    iconEl.className = `pay-status-icon is-${state}`;
+    if (state === "loading") {
+      iconEl.innerHTML = '<span class="pay-spinner" aria-hidden="true"></span>';
+    } else if (state === "success") {
+      iconEl.innerHTML =
+        '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>';
+    } else {
+      iconEl.innerHTML =
+        '<svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
+    }
   }
+
+  if (titleEl) titleEl.textContent = opts.title || "";
+  if (copyEl) copyEl.textContent = opts.copy || "";
+
+  if (badgePreview) {
+    if (state === "success" && opts.status && typeof renderPremiumBadge === "function") {
+      badgePreview.hidden = false;
+      renderPremiumBadge(badgePreview, opts.status, {
+        showUpgrade: false,
+        showExpiryText: true,
+      });
+    } else {
+      badgePreview.hidden = true;
+      badgePreview.innerHTML = "";
+    }
+  }
+
+  if (actionsEl) {
+    actionsEl.innerHTML = "";
+    (opts.actions || []).forEach((act) => {
+      const b = document.createElement("button");
+      b.type = "button";
+      if (act.className) b.className = act.className;
+      b.textContent = act.label;
+      b.onclick = () => act.onClick?.();
+      actionsEl.append(b);
+    });
+  }
+
+  if (!dlg.open) {
+    try {
+      dlg.showModal();
+    } catch {
+      dlg.setAttribute("open", "");
+    }
+  }
+}
+
+function closePaymentStatusModal() {
+  const dlg = $("#paymentStatusModal");
+  if (dlg?.open) dlg.close();
+}
+
+if ($("#paymentStatusModal")) {
+  $("#paymentStatusModal").addEventListener("click", (e) => {
+    if (e.target === $("#paymentStatusModal") && !$("#payStatusIcon")?.classList.contains("is-loading")) {
+      closePaymentStatusModal();
+    }
+  });
+}
+
+async function verifyPaystackReference(reference) {
+  const ref = String(reference || "").trim();
+  if (!ref) return;
+
+  showPaymentStatusModal("loading", {
+    title: "Verifying payment...",
+    copy: "Checking your transaction with Paystack and confirming your Premium status in Supabase.",
+    actions: [],
+  });
+
+  let verifyErrMsg = "";
+  let verifiedOk = false;
+  try {
+    const { data, error } = await sb.functions.invoke("paystack-verify", {
+      body: { reference: ref },
+    });
+    if (error) {
+      verifyErrMsg = error.message || "Could not verify Paystack transaction.";
+    } else if (data?.ok) {
+      verifiedOk = true;
+    } else {
+      verifyErrMsg = data?.error || "Payment has not cleared yet.";
+    }
+  } catch (err) {
+    verifyErrMsg = err?.message || "Network error while verifying payment.";
+  }
+
+  // Always re-check Supabase as source of truth (never trust client redirect alone)
+  let confirmedStatus = null;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (attempt > 0) {
+      await new Promise((r) => setTimeout(r, 650));
+    }
+    confirmedStatus =
+      typeof getPremiumStatus === "function"
+        ? await getPremiumStatus({ force: true, user })
+        : null;
+    if (confirmedStatus?.is_premium) break;
+    if (!verifiedOk) break;
+  }
+
+  if (confirmedStatus?.is_premium) {
+    await refresh();
+    const expiryTxt = confirmedStatus.premium_expires_at
+      ? new Date(confirmedStatus.premium_expires_at).toLocaleDateString()
+      : "30 days";
+    const reopenId = pendingLockedPaperId;
+    pendingLockedPaperId = null;
+
+    showPaymentStatusModal("success", {
+      title: "Welcome to Premium!",
+      copy: `Your UniVault Premium pass is confirmed active until ${expiryTxt}. Full past papers, A4 PDF downloads, and unlimited AI Tutor are unlocked.`,
+      status: confirmedStatus,
+      actions: [
+        ...(reopenId
+          ? [
+              {
+                label: "Open Unlocked Paper",
+                className: "pdf-dl-btn",
+                onClick: () => {
+                  closePaymentStatusModal();
+                  openPaperById(reopenId);
+                },
+              },
+            ]
+          : []),
+        {
+          label: "Explore Premium Dashboard",
+          className: reopenId ? "ghost" : "pdf-dl-btn",
+          onClick: () => {
+            closePaymentStatusModal();
+            show("pricing");
+          },
+        },
+        {
+          label: "Open AI Tutor",
+          className: "ghost",
+          onClick: () => {
+            closePaymentStatusModal();
+            show("chat");
+          },
+        },
+      ],
+    });
+    return;
+  }
+
+  showPaymentStatusModal("error", {
+    title: "Could Not Confirm Premium Yet",
+    copy: `${verifyErrMsg || "Supabase has not confirmed an active subscription yet."} Reference: ${ref}`,
+    actions: [
+      {
+        label: "Retry Verification",
+        className: "pdf-dl-btn",
+        onClick: () => verifyPaystackReference(ref),
+      },
+      {
+        label: "Try Payment Again",
+        className: "ghost",
+        onClick: () => {
+          closePaymentStatusModal();
+          startPaystackCheckout();
+        },
+      },
+      {
+        label: "Close",
+        className: "ghost",
+        onClick: closePaymentStatusModal,
+      },
+    ],
+  });
+}
+
+function startPaystackCheckout() {
+  if (isAdminUser && !P.paid) {
+    show("pricing");
+    return;
+  }
+  if (!user?.email) {
+    showPaymentStatusModal("error", {
+      title: "Sign in required",
+      copy: "Please sign in with your email address before upgrading to Premium.",
+      actions: [{ label: "Close", className: "ghost", onClick: closePaymentStatusModal }],
+    });
+    return;
+  }
+  if (typeof PaystackPop === "undefined") {
+    showPaymentStatusModal("error", {
+      title: "Checkout Unavailable",
+      copy: "Paystack checkout script failed to load. Check your connection and try again.",
+      actions: [
+        {
+          label: "Retry",
+          className: "pdf-dl-btn",
+          onClick: () => {
+            closePaymentStatusModal();
+            startPaystackCheckout();
+          },
+        },
+        { label: "Close", className: "ghost", onClick: closePaymentStatusModal },
+      ],
+    });
+    return;
+  }
+
+  const amountPesewas = Math.round(Number(C.PRICE_GHS || 30) * 100);
   PaystackPop.setup({
     key: C.PAYSTACK_PUBLIC_KEY,
     email: user.email,
-    amount: Math.round(Number(C.PRICE_GHS || 30) * 100),
+    amount: amountPesewas,
     currency: "GHS",
+    metadata: {
+      user_id: user.id,
+      plan: "premium",
+    },
     callback: (r) => {
-      sb.functions
-        .invoke("paystack-verify", { body: { reference: r.reference } })
-        .then(async ({ data }) => {
-          alert(
-            data?.ok
-              ? "Premium active for 30 days!"
-              : "Could not verify. Keep ref " + r.reference
-          );
-          await refresh();
-        });
+      verifyPaystackReference(r?.reference);
+    },
+    onClose: () => {
+      showPaymentStatusModal("cancelled", {
+        title: "Payment Cancelled",
+        copy: "Checkout was closed before payment completed. No charges were made.",
+        actions: [
+          {
+            label: "Retry Payment",
+            className: "pdf-dl-btn",
+            onClick: () => {
+              closePaymentStatusModal();
+              startPaystackCheckout();
+            },
+          },
+          { label: "Close", className: "ghost", onClick: closePaymentStatusModal },
+        ],
+      });
     },
   }).openIframe();
-};
+}
+
+if ($("#pay")) $("#pay").onclick = startPaystackCheckout;
+if ($("#expiredRenewBtn")) $("#expiredRenewBtn").onclick = startPaystackCheckout;
+if ($("#premBannerRenewBtn")) $("#premBannerRenewBtn").onclick = startPaystackCheckout;
+if ($("#premSubRenewBtn")) $("#premSubRenewBtn").onclick = startPaystackCheckout;
+if ($("#premManageBtn")) {
+  $("#premManageBtn").onclick = () => {
+    const subCard = $("#premSubCard");
+    if (subCard && !premiumStatus?.isExpiringSoon) {
+      subCard.scrollIntoView({ behavior: "smooth", block: "center" });
+    } else {
+      startPaystackCheckout();
+    }
+  };
+}
+if ($("#premOpenAiBtn")) $("#premOpenAiBtn").onclick = () => show("chat");
+if ($("#premCreateQuizBtn")) $("#premCreateQuizBtn").onclick = () => show("quiz");
+if ($("#pricingRetryBtn")) $("#pricingRetryBtn").onclick = () => refresh();
+

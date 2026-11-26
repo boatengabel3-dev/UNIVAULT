@@ -2,16 +2,20 @@
 create table if not exists questions(id uuid default gen_random_uuid() primary key,department text not null,course_code text not null,course_title text,description text,year int not null,semester int,uploader uuid references auth.users,status text default 'pending',created_at timestamptz default now());
 alter table if exists public.questions add column if not exists description text;
 create table if not exists question_content(question_id uuid primary key references questions on delete cascade,content text,content_hash text,file_url text);
-create table if not exists profiles(id uuid primary key references auth.users on delete cascade,full_name text,programme_id text,programme text,balance int default 0,premium_until timestamptz,created_at timestamptz default now());
+create table if not exists profiles(id uuid primary key references auth.users on delete cascade,full_name text,programme_id text,programme text,balance int default 0,plan text not null default 'free',premium_started_at timestamptz,premium_expires_at timestamptz,premium_until timestamptz,created_at timestamptz default now());
 alter table if exists public.profiles add column if not exists programme_id text;
 alter table if exists public.profiles add column if not exists programme text;
 alter table if exists public.profiles add column if not exists free_question_ids uuid[] not null default '{}';
+alter table if exists public.profiles add column if not exists plan text not null default 'free';
+alter table if exists public.profiles add column if not exists premium_started_at timestamptz;
+alter table if exists public.profiles add column if not exists premium_expires_at timestamptz;
+update public.profiles set premium_expires_at = coalesce(premium_expires_at, premium_until), plan = case when coalesce(premium_expires_at, premium_until) > now() then 'premium' else coalesce(nullif(plan, ''), 'free') end where (premium_expires_at is null and premium_until is not null) or plan is null;
 create table if not exists payments(reference text primary key,user_id uuid,amount int,created_at timestamptz default now());
 create table if not exists payouts(id uuid default gen_random_uuid() primary key,user_id uuid references auth.users,amount int,account_name text,momo text,network text,status text default 'pending',created_at timestamptz default now());
 create table if not exists admins(user_id uuid primary key references auth.users on delete cascade);
 alter table questions enable row level security;alter table question_content enable row level security;alter table profiles enable row level security;alter table payments enable row level security;alter table payouts enable row level security;alter table admins enable row level security;
 create or replace function is_admin() returns boolean language sql security definer stable set search_path = public as $$ select exists(select 1 from public.admins where user_id=auth.uid()) $$;
-create or replace function is_premium() returns boolean language sql security definer stable set search_path = public as $$ select public.is_admin() or exists(select 1 from public.profiles where id=auth.uid() and premium_until>now()) $$;
+create or replace function is_premium() returns boolean language sql security definer stable set search_path = public as $$ select public.is_admin() or exists(select 1 from public.profiles where id=auth.uid() and coalesce(premium_expires_at, premium_until)>now()) $$;
 drop policy if exists "q read" on questions;
 create policy "q read" on questions for select using(status='approved' or uploader=auth.uid() or is_admin());
 drop policy if exists "content read" on public.question_content;
@@ -28,8 +32,11 @@ drop policy if exists "own profile" on profiles;
 create policy "own profile" on profiles for select using(auth.uid()=id or is_admin());
 drop policy if exists "own profile programme update" on profiles;
 create policy "own profile programme update" on profiles for update using(auth.uid()=id) with check(auth.uid()=id);
+revoke update on public.profiles from anon, authenticated;
+grant update (full_name, programme_id, programme) on public.profiles to authenticated;
 drop policy if exists "admin payments" on payments;
-create policy "admin payments" on payments for select using(is_admin());
+drop policy if exists "own or admin payments" on payments;
+create policy "own or admin payments" on payments for select using(user_id=auth.uid() or is_admin());
 drop policy if exists "own payouts" on payouts;
 create policy "own payouts" on payouts for select using(user_id=auth.uid() or is_admin());
 drop policy if exists "am i admin" on admins;
@@ -188,7 +195,7 @@ begin
   if public.is_admin() then
     return jsonb_build_object('allowed', true, 'unlimited', true, 'remaining', 9999, 'limit', lim);
   end if;
-  select premium_until, coalesce(ai_uses, 0) into prem, used from public.profiles where id=uid for update;
+  select coalesce(premium_expires_at, premium_until), coalesce(ai_uses, 0) into prem, used from public.profiles where id=uid for update;
   used := coalesce(used, 0);
   if prem is not null and prem > now() then
     return jsonb_build_object('allowed', true, 'unlimited', true, 'remaining', 9999, 'limit', lim);
@@ -209,6 +216,7 @@ declare
   used_count int := 0;
   q_rec record;
   q_body text;
+  q_preview text := '';
 begin
   if uid is null then raise exception 'Sign in first'; end if;
   select coalesce(free_questions_limit, 3) into lim from public.app_settings where id=1;
@@ -234,7 +242,7 @@ begin
   end if;
 
   insert into public.profiles(id) values(uid) on conflict (id) do nothing;
-  select premium_until, coalesce(free_question_ids, '{}') into prem, unlocked
+  select coalesce(premium_expires_at, premium_until), coalesce(free_question_ids, '{}') into prem, unlocked
   from public.profiles where id = uid for update;
   unlocked := coalesce(unlocked, '{}');
   used_count := coalesce(array_length(unlocked, 1), 0);
@@ -257,9 +265,21 @@ begin
   end if;
 
   if used_count >= lim then
+    if length(trim(q_body)) > 0 then
+      if length(trim(q_body)) <= 220 then
+        q_preview := left(trim(q_body), greatest(60, floor(length(trim(q_body)) * 0.4)::int));
+      else
+        q_preview := left(trim(q_body), 340);
+      end if;
+      if length(q_preview) < length(trim(q_body)) then
+        q_preview := regexp_replace(q_preview, '\s+\S*$', '') || '...';
+      end if;
+    end if;
     return jsonb_build_object(
       'allowed', false,
       'unlimited', false,
+      'is_preview', (length(q_preview) > 0),
+      'preview', q_preview,
       'used', used_count,
       'remaining', 0,
       'limit', lim,

@@ -657,7 +657,7 @@ export async function checkAndConsumeAiQuota(opts: {
   // Fallback when consume_free_ai RPC is not yet installed in Supabase SQL Editor
   const [profRes, admRes, setRes] = await Promise.all([
     fetch(
-      `${opts.supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(opts.userId)}&select=premium_until`,
+      `${opts.supabaseUrl}/rest/v1/profiles?id=eq.${encodeURIComponent(opts.userId)}&select=*&limit=1`,
       { headers, signal: AbortSignal.timeout(7000) }
     ),
     fetch(
@@ -671,13 +671,13 @@ export async function checkAndConsumeAiQuota(opts: {
   ]);
 
   const profRows = profRes.ok
-    ? ((await profRes.json()) as Array<{ premium_until?: string | null }>)
+    ? ((await profRes.json()) as Array<{ premium_expires_at?: string | null; premium_until?: string | null }>)
     : [];
   const admRows = admRes.ok ? ((await admRes.json()) as Array<{ user_id?: string }>) : [];
   const setRows =
     setRes && setRes.ok ? ((await setRes.json()) as Array<{ free_ai_limit?: number }>) : [];
 
-  const premiumUntil = profRows[0]?.premium_until;
+  const premiumUntil = profRows[0]?.premium_expires_at || profRows[0]?.premium_until;
   const isAdmin = admRows.length > 0;
   const isPremium = Boolean(premiumUntil && new Date(premiumUntil) > new Date());
   const freeLimit = Math.max(0, Number(setRows[0]?.free_ai_limit ?? 5));

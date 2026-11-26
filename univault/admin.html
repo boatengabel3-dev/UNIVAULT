@@ -9,6 +9,7 @@
     <button type="button" data-av="payouts">Payouts</button>
   </nav>
   <span style="display:inline-flex;gap:8px;align-items:center">
+    <span id="adminHeaderBadge" class="uv-prem-slot"><span class="uv-badge-skel" aria-hidden="true"></span></span>
     <button type="button" class="theme-toggle" data-theme-toggle aria-label="Switch to light mode" aria-pressed="false"></button>
     <a href="app.html" class="ghost" style="padding:8px 14px;border-radius:10px;border:1px solid var(--b);background:var(--ghost-bg);color:var(--ink);text-decoration:none;font-size:.9rem">Student View</a>
     <button id="aout" type="button" class="ghost">Sign out</button>
@@ -61,6 +62,13 @@
         </div>
         <div id="activityFeed" class="row-list"></div>
       </div>
+    </div>
+    <div style="margin-top:26px">
+      <div class="dash-head">
+        <h2>Premium Members &amp; Expiry Dates</h2>
+        <span id="premMembersCount" style="font-size:.88rem;color:var(--c)"></span>
+      </div>
+      <div id="premiumUsersList" class="row-list"></div>
     </div>
   </section>
 

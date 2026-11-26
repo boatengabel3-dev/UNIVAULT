@@ -331,7 +331,15 @@ app.get('/sw.js', (_req, res) => {
   res.type('application/javascript').sendFile(swPath);
 });
 
-app.use(express.static(staticDir));
+app.use(
+  express.static(staticDir, {
+    setHeaders: (res, filePath) => {
+      if (/\.(html|js|css|webmanifest)$/i.test(filePath)) {
+        res.setHeader('Cache-Control', 'no-cache');
+      }
+    },
+  })
+);
 
 app.get('*', (req, res) => {
   if (path.extname(req.path)) {

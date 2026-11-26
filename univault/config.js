@@ -1013,3 +1013,216 @@ const uvPwa = (() => {
   };
 })();
 
+const UV_CROWN_SVG =
+  '<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M3 18h18v2H3v-2zm0-2l2-9 4.5 4L12 5l2.5 6L19 7l2 9H3z"/></svg>';
+
+let _uvPremInFlight = null;
+let _uvLastPremStatus = null;
+
+async function getPremiumStatus(options = {}) {
+  const client = options.sbClient || (typeof sb !== "undefined" ? sb : null);
+  const force = Boolean(options.force);
+  if (!force && _uvPremInFlight) return _uvPremInFlight;
+
+  const runner = (async () => {
+    const fallbackResult = (extra = {}) => ({
+      loading: false,
+      error: null,
+      isAuthenticated: false,
+      userId: null,
+      user: null,
+      displayName: "",
+      is_premium: false,
+      isPremium: false,
+      isPaidActive: false,
+      isAdmin: false,
+      plan: "free",
+      premium_started_at: null,
+      premium_expires_at: null,
+      premium_until: null,
+      daysRemaining: 0,
+      isExpired: false,
+      isExpiringSoon: false,
+      ai_uses: 0,
+      free_question_ids: [],
+      price_ghs: Number(C.PRICE_GHS || 30),
+      free_ai_limit: 5,
+      free_questions_limit: 3,
+      profile: null,
+      ...extra,
+    });
+
+    if (!client || typeof isValidSupabaseUrl === "undefined" || !isValidSupabaseUrl) {
+      return fallbackResult({ error: "Supabase is not configured." });
+    }
+
+    let authUser = options.user || null;
+    if (!authUser) {
+      const { data: sessionData, error: sessionErr } = await client.auth.getSession();
+      if (sessionErr) {
+        return fallbackResult({ error: sessionErr.message || "Could not verify session." });
+      }
+      authUser = sessionData?.session?.user || null;
+    }
+
+    const uid = options.userId || authUser?.id || null;
+    if (!uid) {
+      return fallbackResult({ isAuthenticated: false });
+    }
+
+    const [profRes, adminRes, settingsResInitial] = await Promise.all([
+      client.from("profiles").select("*").eq("id", uid).maybeSingle(),
+      client.from("admins").select("user_id").eq("user_id", uid).maybeSingle(),
+      client.from("app_settings").select("price_ghs,free_ai_limit,free_questions_limit").eq("id", 1).maybeSingle(),
+    ]);
+
+    let settingsRes = settingsResInitial;
+    if (settingsRes?.error && /free_questions_limit/i.test(settingsRes.error.message || "")) {
+      settingsRes = await client.from("app_settings").select("price_ghs,free_ai_limit").eq("id", 1).maybeSingle();
+    }
+
+    const isAdmin = Boolean(adminRes?.data);
+    if (profRes?.error && !profRes?.data && !isAdmin) {
+      return fallbackResult({
+        isAuthenticated: true,
+        userId: uid,
+        user: authUser,
+        error: profRes.error.message || "Could not load subscription status.",
+      });
+    }
+
+    const profile = profRes?.data || {};
+    const rawExpires = profile.premium_expires_at || profile.premium_until || null;
+    const expiresDate = rawExpires ? new Date(rawExpires) : null;
+    const hasValidExpiry = Boolean(expiresDate && !Number.isNaN(expiresDate.getTime()));
+    const now = new Date();
+    const isPaidActive = Boolean(hasValidExpiry && expiresDate > now);
+    const isExpired = Boolean(hasValidExpiry && expiresDate <= now);
+    const is_premium = Boolean(isPaidActive || isAdmin);
+    const daysRemaining = isPaidActive
+      ? Math.max(1, Math.ceil((expiresDate.getTime() - now.getTime()) / 86400000))
+      : 0;
+    const isExpiringSoon = Boolean(isPaidActive && daysRemaining <= 5);
+    const plan = isPaidActive
+      ? profile.plan && profile.plan !== "free"
+        ? String(profile.plan)
+        : "premium"
+      : isAdmin
+        ? "admin_premium"
+        : "free";
+
+    const rawPrice = Number(settingsRes?.data?.price_ghs);
+    const price_ghs = Number.isFinite(rawPrice) && rawPrice > 0 ? rawPrice : Number(C.PRICE_GHS || 30);
+    const rawFreeAi = settingsRes?.data?.free_ai_limit;
+    const free_ai_limit =
+      rawFreeAi !== null && rawFreeAi !== undefined ? Math.max(0, Number(rawFreeAi)) : 5;
+    const rawFreeQ = settingsRes?.data?.free_questions_limit;
+    const free_questions_limit =
+      rawFreeQ !== null && rawFreeQ !== undefined ? Math.max(0, Number(rawFreeQ)) : 3;
+
+    const meta = authUser?.user_metadata || {};
+    const displayName = String(
+      profile.full_name || meta.full_name || meta.name || (authUser?.email ? authUser.email.split("@")[0] : "") || "Scholar"
+    ).trim();
+
+    const status = {
+      loading: false,
+      error: null,
+      isAuthenticated: true,
+      userId: uid,
+      user: authUser,
+      displayName,
+      is_premium,
+      isPremium: is_premium,
+      isPaidActive,
+      isAdmin,
+      plan,
+      premium_started_at: profile.premium_started_at || null,
+      premium_expires_at: rawExpires,
+      premium_until: rawExpires,
+      daysRemaining,
+      isExpired,
+      isExpiringSoon,
+      ai_uses: Math.max(0, Number(profile.ai_uses || 0)),
+      free_question_ids: Array.isArray(profile.free_question_ids) ? profile.free_question_ids : [],
+      price_ghs,
+      free_ai_limit,
+      free_questions_limit,
+      profile,
+    };
+    _uvLastPremStatus = status;
+    return status;
+  })();
+
+  _uvPremInFlight = runner;
+  try {
+    return await runner;
+  } finally {
+    if (_uvPremInFlight === runner) _uvPremInFlight = null;
+  }
+}
+
+function renderPremiumBadge(target, status, options = {}) {
+  const el = typeof target === "string" ? document.querySelector(target) : target;
+  if (!el) return;
+
+  const {
+    showUpgrade = true,
+    showExpiryText = false,
+    compact = false,
+    onUpgrade = null,
+    upgradeHref = "app.html?view=pricing",
+  } = options;
+
+  if (!status || status.loading) {
+    el.hidden = false;
+    el.innerHTML = '<span class="uv-badge-skel" aria-hidden="true"></span>';
+    return;
+  }
+
+  if (status.is_premium) {
+    const expiryDate = status.premium_expires_at
+      ? new Date(status.premium_expires_at).toLocaleDateString()
+      : "";
+    const tip = status.isPaidActive && expiryDate
+      ? `Premium until ${expiryDate}`
+      : status.isAdmin
+        ? "Premium member · Admin access"
+        : "Premium member";
+    el.hidden = false;
+    el.innerHTML =
+      `<span class="uv-prem-pill${compact ? " is-compact" : ""}" role="status" aria-label="Premium member" title="${esc(tip)}">` +
+      `${UV_CROWN_SVG}<span>Premium</span></span>` +
+      (showExpiryText ? `<span class="uv-prem-until">${esc(tip)}</span>` : "");
+    return;
+  }
+
+  if (status.isAuthenticated && showUpgrade) {
+    el.hidden = false;
+    if (typeof onUpgrade === "function") {
+      el.innerHTML = "";
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = `uv-upgrade-link${compact ? " is-compact" : ""}`;
+      btn.textContent = status.isExpired ? "Renew" : "Upgrade";
+      btn.setAttribute("aria-label", status.isExpired ? "Renew Premium membership" : "Upgrade to Premium");
+      btn.addEventListener("click", (e) => {
+        e.preventDefault();
+        onUpgrade(status);
+      });
+      el.append(btn);
+    } else {
+      el.innerHTML = `<a href="${esc(upgradeHref)}" class="uv-upgrade-link${compact ? " is-compact" : ""}">${status.isExpired ? "Renew" : "Upgrade"}</a>`;
+    }
+    return;
+  }
+
+  el.innerHTML = "";
+  el.hidden = true;
+}
+
+window.getPremiumStatus = getPremiumStatus;
+window.renderPremiumBadge = renderPremiumBadge;
+window.getLastPremiumStatus = () => _uvLastPremStatus;
+
+

@@ -11,6 +11,15 @@ const json = (body: unknown, status = 200) =>
     headers: { ...cors, "Content-Type": "application/json" },
   });
 
+function buildPaperPreview(content: string): string {
+  const clean = String(content || "").trim();
+  if (!clean) return "";
+  const maxLen = clean.length <= 220 ? Math.max(60, Math.floor(clean.length * 0.4)) : 340;
+  if (clean.length <= maxLen) return clean;
+  const slice = clean.slice(0, maxLen).replace(/\s+\S*$/, "").trim();
+  return `${slice || clean.slice(0, maxLen)}...`;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: cors });
@@ -56,7 +65,7 @@ Deno.serve(async (req) => {
         .eq("id", cleanQid)
         .maybeSingle(),
       sb.from("admins").select("user_id").eq("user_id", user.id).maybeSingle(),
-      sb.from("profiles").select("id,premium_until,free_question_ids").eq("id", user.id).maybeSingle(),
+      sb.from("profiles").select("*").eq("id", user.id).maybeSingle(),
     ]);
 
     const limit =
@@ -83,7 +92,8 @@ Deno.serve(async (req) => {
     }
 
     const prof = profileRes.data;
-    const isPro = Boolean(prof?.premium_until && new Date(prof.premium_until) > new Date());
+    const expiresRaw = prof?.premium_expires_at || prof?.premium_until;
+    const isPro = Boolean(expiresRaw && new Date(expiresRaw) > new Date());
     const unlocked = Array.isArray(prof?.free_question_ids)
       ? prof.free_question_ids.map((v: unknown) => String(v))
       : [];
@@ -113,9 +123,12 @@ Deno.serve(async (req) => {
     }
 
     if (unlocked.length >= limit) {
+      const preview = buildPaperPreview(content);
       return json({
         allowed: false,
         unlimited: false,
+        is_preview: Boolean(preview),
+        preview,
         used: unlocked.length,
         remaining: 0,
         limit,

@@ -1,4 +1,4 @@
-const CACHE_VERSION = "v31";
+const CACHE_VERSION = "v33";
 const STATIC_CACHE = `univault-static-${CACHE_VERSION}`;
 const DATA_CACHE = `univault-data-${CACHE_VERSION}`;
 const CDN_CACHE = `univault-cdn-${CACHE_VERSION}`;
@@ -91,11 +91,12 @@ function isCacheableCdnRequest(url) {
   return CACHEABLE_CDN_HOSTS.includes(url.hostname);
 }
 
-async function networkFirst(request, cacheName, { ignoreSearch = false, cacheKeyUrl = false } = {}) {
+async function networkFirst(request, cacheName, { ignoreSearch = false, cacheKeyUrl = false, bypassHttpCache = false } = {}) {
   const cache = await caches.open(cacheName);
   const key = cacheKeyUrl ? request.url : request;
   try {
-    const response = await fetch(request);
+    const netReq = bypassHttpCache ? new Request(request, { cache: "no-cache" }) : request;
+    const response = await fetch(netReq);
     if (response && response.ok) {
       cache.put(key, response.clone()).catch(() => {});
     }
@@ -151,7 +152,7 @@ self.addEventListener("fetch", (event) => {
   // Navigation requests (e.g., /app.html?paper=..., /index.html, /signup.html)
   if (request.mode === "navigate") {
     event.respondWith(
-      networkFirst(request, STATIC_CACHE, { ignoreSearch: true })
+      networkFirst(request, STATIC_CACHE, { ignoreSearch: true, bypassHttpCache: true })
     );
     return;
   }
@@ -177,7 +178,7 @@ self.addEventListener("fetch", (event) => {
       event.respondWith(staleWhileRevalidate(request, STATIC_CACHE));
       return;
     }
-    event.respondWith(networkFirst(request, STATIC_CACHE, { ignoreSearch: false }));
+    event.respondWith(networkFirst(request, STATIC_CACHE, { ignoreSearch: false, bypassHttpCache: true }));
     return;
   }
 

@@ -39,11 +39,12 @@ Deno.serve(async (req) => {
 
     const cleanAttachment = String(attachmentContext || "").trim().slice(0, 18000);
     const [{ data: p }, { data: adm }, { data: settings }] = await Promise.all([
-      sb.from("profiles").select("*").eq("id", user.id).single(),
+      sb.from("profiles").select("*").eq("id", user.id).maybeSingle(),
       sb.from("admins").select("user_id").eq("user_id", user.id).maybeSingle(),
       sb.from("app_settings").select("free_ai_limit").eq("id", 1).maybeSingle(),
     ]);
-    const premium = Boolean(p?.premium_until && new Date(p.premium_until) > new Date());
+    const expRaw = p?.premium_expires_at || p?.premium_until;
+    const premium = Boolean(expRaw && new Date(expRaw) > new Date());
     const freeLimit = Math.max(0, Number(settings?.free_ai_limit ?? 5));
     const currentUses = Number(p?.ai_uses ?? 0);
     let freeRemaining: number | null = null;

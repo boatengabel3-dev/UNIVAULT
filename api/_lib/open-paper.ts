@@ -10,6 +10,8 @@ export interface OpenPaperResult {
   unlimited?: boolean;
   not_found?: boolean;
   already_unlocked?: boolean;
+  is_preview?: boolean;
+  preview?: string;
   content?: string;
   used?: number;
   remaining?: number;
@@ -18,6 +20,15 @@ export interface OpenPaperResult {
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function buildPaperPreview(content: string): string {
+  const clean = String(content || '').trim();
+  if (!clean) return '';
+  const maxLen = clean.length <= 220 ? Math.max(60, Math.floor(clean.length * 0.4)) : 340;
+  if (clean.length <= maxLen) return clean;
+  const slice = clean.slice(0, maxLen).replace(/\s+\S*$/, '').trim();
+  return `${slice || clean.slice(0, maxLen)}...`;
+}
 
 export async function openPastQuestionWithServiceKey(
   input: OpenPaperInput
@@ -93,7 +104,7 @@ export async function openPastQuestionWithServiceKey(
   }
 
   let profileRes = await fetch(
-    `${base}/rest/v1/profiles?id=eq.${encodeURIComponent(input.userId)}&select=id,premium_until,free_question_ids&limit=1`,
+    `${base}/rest/v1/profiles?id=eq.${encodeURIComponent(input.userId)}&select=id,premium_expires_at,premium_until,free_question_ids&limit=1`,
     { headers }
   );
   let hasFreeIdsColumn = true;
@@ -108,13 +119,15 @@ export async function openPastQuestionWithServiceKey(
   const pRows = profileRes.ok
     ? ((await profileRes.json()) as Array<{
         id: string;
+        premium_expires_at?: string | null;
         premium_until?: string | null;
         free_question_ids?: string[] | null;
       }>)
     : [];
   const prof = pRows?.[0];
 
-  const isPro = Boolean(prof?.premium_until && new Date(prof.premium_until) > new Date());
+  const expiresRaw = prof?.premium_expires_at || prof?.premium_until;
+  const isPro = Boolean(expiresRaw && new Date(expiresRaw) > new Date());
   const unlocked = Array.isArray(prof?.free_question_ids)
     ? prof.free_question_ids.map((v) => String(v))
     : [];
@@ -144,9 +157,12 @@ export async function openPastQuestionWithServiceKey(
   }
 
   if (unlocked.length >= limit) {
+    const preview = buildPaperPreview(content);
     return {
       allowed: false,
       unlimited: false,
+      is_preview: Boolean(preview),
+      preview,
       used: unlocked.length,
       remaining: 0,
       limit,
